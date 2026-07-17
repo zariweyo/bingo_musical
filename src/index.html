@@ -6,8 +6,124 @@
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0f172a">
+  <style>
+    #spotify-json-debug {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      z-index: 99999;
+      display: none;
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 16px;
+      background: #ffffff;
+      color: #0f172a;
+      font: 600 14px/1 system-ui, sans-serif;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+      cursor: pointer;
+    }
+
+    #spotify-json-debug:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+  </style>
 </head>
 <body>
   <app-root></app-root>
+
+  <button id="spotify-json-debug" type="button">Ver JSON raw</button>
+
+  <script>
+    (() => {
+      const button = document.getElementById('spotify-json-debug');
+      const tokenKey = 'spotify_access_token';
+
+      const getSelectedPlaylistId = () => {
+        const select = document.getElementById('playlist-select');
+        return typeof select?.value === 'string' && select.value ? select.value : null;
+      };
+
+      const updateButtonVisibility = () => {
+        button.style.display = getSelectedPlaylistId() && sessionStorage.getItem(tokenKey)
+          ? 'block'
+          : 'none';
+      };
+
+      button.addEventListener('click', async () => {
+        const playlistId = getSelectedPlaylistId();
+        const accessToken = sessionStorage.getItem(tokenKey);
+
+        if (!playlistId || !accessToken) {
+          return;
+        }
+
+        const debugWindow = window.open('', '_blank');
+        button.disabled = true;
+        button.textContent = 'Cargando JSON…';
+
+        try {
+          const url =
+            `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/items` +
+            '?limit=50&additional_types=track';
+
+          const response = await fetch(url, {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          });
+
+          const responseText = await response.text();
+          let body;
+
+          try {
+            body = JSON.parse(responseText);
+          } catch {
+            body = responseText;
+          }
+
+          const debugPayload = {
+            requestedUrl: url,
+            status: response.status,
+            statusText: response.statusText,
+            ok: response.ok,
+            body,
+          };
+
+          const blob = new Blob([JSON.stringify(debugPayload, null, 2)], {
+            type: 'application/json',
+          });
+          const blobUrl = URL.createObjectURL(blob);
+
+          if (debugWindow) {
+            debugWindow.location.href = blobUrl;
+          } else {
+            window.open(blobUrl, '_blank');
+          }
+
+          window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+
+          if (debugWindow) {
+            debugWindow.document.body.innerHTML = `<pre>${message}</pre>`;
+          } else {
+            alert(message);
+          }
+        } finally {
+          button.disabled = false;
+          button.textContent = 'Ver JSON raw';
+        }
+      });
+
+      document.addEventListener('ionChange', updateButtonVisibility);
+      new MutationObserver(updateButtonVisibility).observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
+      window.setInterval(updateButtonVisibility, 500);
+      updateButtonVisibility();
+    })();
+  </script>
 </body>
 </html>
