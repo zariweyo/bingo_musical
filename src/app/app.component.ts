@@ -12,10 +12,12 @@ import {
 import { addIcons } from 'ionicons';
 import {
   albumsOutline,
+  checkmarkCircle,
   checkmarkCircleOutline,
   logInOutline,
   logOutOutline,
   musicalNotes,
+  refreshOutline,
   shieldCheckmarkOutline,
 } from 'ionicons/icons';
 
@@ -25,6 +27,33 @@ interface SpotifyImage {
 
 interface SpotifyUserProfile {
   id: string;
+}
+
+interface SpotifyArtist {
+  name: string;
+}
+
+interface SpotifyTrack {
+  id: string;
+  name: string;
+  type: string;
+  is_local: boolean;
+  artists: SpotifyArtist[];
+  album: {
+    images: SpotifyImage[];
+  };
+  external_urls: {
+    spotify: string;
+  };
+}
+
+interface SpotifyPlaylistItem {
+  track: SpotifyTrack | null;
+}
+
+interface SpotifyPlaylistItemsResponse {
+  items: SpotifyPlaylistItem[];
+  next: string | null;
 }
 
 interface SpotifyPlaylist {
@@ -81,23 +110,30 @@ export class AppComponent implements OnInit {
   private readonly stateKey = 'spotify_auth_state';
   private readonly tokenKey = 'spotify_access_token';
   private readonly tokenExpiryKey = 'spotify_token_expiry';
+  private readonly bingoSize = 15;
 
   readonly isLoading = signal(false);
+  readonly isGeneratingCard = signal(false);
   readonly isConnected = signal(false);
   readonly playlists = signal<SpotifyPlaylist[]>([]);
   readonly selectedPlaylistId = signal<string | null>(null);
   readonly selectedPlaylist = computed(() =>
     this.playlists().find((playlist) => playlist.id === this.selectedPlaylistId()) ?? null,
   );
+  readonly bingoTracks = signal<SpotifyTrack[]>([]);
+  readonly markedTrackIds = signal<Set<string>>(new Set());
+  readonly markedCount = computed(() => this.markedTrackIds().size);
   readonly errorMessage = signal<string | null>(null);
 
   constructor() {
     addIcons({
       albumsOutline,
+      checkmarkCircle,
       checkmarkCircleOutline,
       musicalNotes,
       logInOutline,
       logOutOutline,
+      refreshOutline,
       shieldCheckmarkOutline,
     });
   }
@@ -148,8 +184,103 @@ export class AppComponent implements OnInit {
     window.location.assign(`https://accounts.spotify.com/authorize?${params.toString()}`);
   }
 
-  selectPlaylist(playlistId: string | null): void {
+  async selectPlaylist(playlistId: string | null): Promise<void> {
     this.selectedPlaylistId.set(playlistId);
+    this.bingoTracks.set([]);
+    this.markedTrackIds.set(new Set());
+    this.errorMessage.set(null);
+
+    if (playlistId) {
+      await this.generateBingoCard();
+    }
+  }
+
+  async generateBingoCard(): Promise<void> {
+    const playlistId = this.selectedPlaylistId();
+    const accessToken = sessionStorage.getItem(this.tokenKey);
+
+    if (!playlistId || !accessToken) {
+      return;
+    }
+
+    this.isGeneratingCard.set(true);
+    this.errorMessage.set(null);
+    this.markedTrackIds.set(new Set());
+
+    try {
+      const tracks: SpotifyTrack[] = [];
+      const fields = 'items(track(id,name,type,is_local,artists(name),album(images),external_urls)),next';
+      let nextUrl: string | null =
+        `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/items` +
+        `?limit=50&additional_types=track&fields=${encodeURIComponent(fields)}`;
+
+      while (nextUrl) {
+        const response = await fetch(nextUrl, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+
+        if (response.status === 401) {
+          this.disconnect();
+          throw new Error('La sesión de Spotify ha caducado. Conecta tu cuenta de nuevo.');
+        }
+
+        if (!response.ok) {
+          throw new Error(`No se pudieron cargar las canciones (${response.status}).`);
+        }
+
+        const page = (await response.json()) as SpotifyPlaylistItemsResponse;
+
+        for (const item of page.items) {
+          const track = item.track;
+          if (
+            track &&
+            track.type === 'track' &&
+            !track.is_local &&
+            track.id &&
+            track.album?.images?.length
+          ) {
+            tracks.push(track);
+          }
+        }
+
+        nextUrl = page.next;
+      }
+
+      const uniqueTracks = Array.from(new Map(tracks.map((track) => [track.id, track])).values());
+
+      if (uniqueTracks.length < this.bingoSize) {
+        throw new Error(
+          `Esta playlist solo tiene ${uniqueTracks.length} canciones válidas. Necesitas al menos ${this.bingoSize}.`,
+        );
+      }
+
+      this.bingoTracks.set(this.shuffle(uniqueTracks).slice(0, this.bingoSize));
+    } catch (error) {
+      this.bingoTracks.set([]);
+      this.errorMessage.set(
+        error instanceof Error ? error.message : 'No se pudo generar el cartón.',
+      );
+    } finally {
+      this.isGeneratingCard.set(false);
+    }
+  }
+
+  toggleTrack(trackId: string): void {
+    const nextMarked = new Set(this.markedTrackIds());
+
+    if (nextMarked.has(trackId)) {
+      nextMarked.delete(trackId);
+    } else {
+      nextMarked.add(trackId);
+    }
+
+    this.markedTrackIds.set(nextMarked);
+  }
+
+  isTrackMarked(trackId: string): boolean {
+    return this.markedTrackIds().has(trackId);
   }
 
   disconnect(): void {
@@ -159,6 +290,8 @@ export class AppComponent implements OnInit {
     sessionStorage.removeItem(this.stateKey);
     this.playlists.set([]);
     this.selectedPlaylistId.set(null);
+    this.bingoTracks.set([]);
+    this.markedTrackIds.set(new Set());
     this.errorMessage.set(null);
     this.isConnected.set(false);
   }
@@ -276,7 +409,7 @@ export class AppComponent implements OnInit {
       this.playlists.set(collected);
 
       if (collected.length === 1) {
-        this.selectedPlaylistId.set(collected[0].id);
+        await this.selectPlaylist(collected[0].id);
       } else if (!collected.some((playlist) => playlist.id === this.selectedPlaylistId())) {
         this.selectedPlaylistId.set(null);
       }
@@ -287,6 +420,17 @@ export class AppComponent implements OnInit {
     } finally {
       this.isLoading.set(false);
     }
+  }
+
+  private shuffle<T>(items: T[]): T[] {
+    const shuffled = [...items];
+
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const randomIndex = Math.floor(Math.random() * (index + 1));
+      [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
+    }
+
+    return shuffled;
   }
 
   private hasValidAccessToken(): boolean {
