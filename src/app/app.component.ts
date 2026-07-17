@@ -7,7 +7,11 @@ import {
   IonText,
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import { musicalNotes, playCircle } from 'ionicons/icons';
+import {
+  logInOutline,
+  musicalNotes,
+  shieldCheckmarkOutline,
+} from 'ionicons/icons';
 
 @Component({
   selector: 'app-root',
@@ -19,6 +23,12 @@ import { musicalNotes, playCircle } from 'ionicons/icons';
 })
 export class AppComponent {
   constructor() {
-    addIcons({ musicalNotes, playCircle });
+    addIcons({ musicalNotes, logInOutline, shieldCheckmarkOutline });
+  }
+
+  connectWithSpotify(): void {
+    window.alert(
+      'La pantalla ya está preparada. El siguiente paso es registrar Bingo Musical en Spotify y añadir el Client ID para activar el acceso OAuth con PKCE.',
+    );
   }
 }
