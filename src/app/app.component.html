@@ -1,31 +1,100 @@
 <ion-app>
   <ion-content [fullscreen]="true">
     <main class="landing">
-      <section class="hero">
-        <div class="brand-mark" aria-hidden="true">
-          <ion-icon name="musical-notes"></ion-icon>
-        </div>
+      @if (!isConnected()) {
+        <section class="hero">
+          <div class="brand-mark" aria-hidden="true">
+            <ion-icon name="musical-notes"></ion-icon>
+          </div>
 
-        <ion-text>
-          <p class="eyebrow">Bingo Musical</p>
-          <h1>Crea tu partida con Spotify</h1>
-          <p class="subtitle">
-            Conecta tu cuenta, elige una de tus playlists y genera cartones musicales únicos para todos los jugadores.
-          </p>
-        </ion-text>
+          <ion-text>
+            <p class="eyebrow">Bingo Musical</p>
+            <h1>Crea tu partida con Spotify</h1>
+            <p class="subtitle">
+              Conecta tu cuenta, elige una de tus playlists y genera cartones musicales únicos para todos los jugadores.
+            </p>
+          </ion-text>
 
-        <ion-button shape="round" size="large" (click)="connectWithSpotify()">
-          <ion-icon slot="start" name="log-in-outline"></ion-icon>
-          Conectar con Spotify
-        </ion-button>
+          <ion-button
+            shape="round"
+            size="large"
+            [disabled]="isLoading()"
+            (click)="connectWithSpotify()"
+          >
+            @if (isLoading()) {
+              <ion-spinner slot="start" name="crescent"></ion-spinner>
+            } @else {
+              <ion-icon slot="start" name="log-in-outline"></ion-icon>
+            }
+            Conectar con Spotify
+          </ion-button>
 
-        <div class="privacy-note">
-          <ion-icon name="shield-checkmark-outline" aria-hidden="true"></ion-icon>
-          <p>Solo solicitaremos permiso para consultar tus playlists. No publicaremos ni modificaremos nada.</p>
-        </div>
+          <div class="privacy-note">
+            <ion-icon name="shield-checkmark-outline" aria-hidden="true"></ion-icon>
+            <p>Solo solicitaremos permiso para consultar tus playlists. No publicaremos ni modificaremos nada.</p>
+          </div>
 
-        <p class="status">Después podrás seleccionar la lista que quieras usar en la partida.</p>
-      </section>
+          @if (errorMessage()) {
+            <p class="error-message">{{ errorMessage() }}</p>
+          }
+        </section>
+      } @else {
+        <section class="playlists-view">
+          <header class="playlists-header">
+            <div>
+              <p class="eyebrow">Spotify conectado</p>
+              <h1>Elige una playlist</h1>
+              <p class="subtitle">Selecciona la música que quieres utilizar para crear la partida.</p>
+            </div>
+
+            <ion-button fill="clear" class="disconnect-button" (click)="disconnect()">
+              <ion-icon slot="start" name="log-out-outline"></ion-icon>
+              Desconectar
+            </ion-button>
+          </header>
+
+          @if (errorMessage()) {
+            <p class="error-message">{{ errorMessage() }}</p>
+          }
+
+          @if (isLoading()) {
+            <div class="loading-state">
+              <ion-spinner name="crescent"></ion-spinner>
+              <p>Cargando tus playlists...</p>
+            </div>
+          } @else if (playlists().length === 0) {
+            <div class="empty-state">
+              <ion-icon name="albums-outline"></ion-icon>
+              <h2>No encontramos playlists</h2>
+              <p>Crea o guarda una playlist en Spotify y vuelve a conectar.</p>
+            </div>
+          } @else {
+            <div class="playlist-grid">
+              @for (playlist of playlists(); track playlist.id) {
+                <a
+                  class="playlist-card"
+                  [href]="playlist.external_urls.spotify"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  @if (playlist.images[0]?.url) {
+                    <img [src]="playlist.images[0].url" [alt]="'Portada de ' + playlist.name" />
+                  } @else {
+                    <div class="playlist-placeholder" aria-hidden="true">
+                      <ion-icon name="musical-notes"></ion-icon>
+                    </div>
+                  }
+
+                  <div class="playlist-info">
+                    <h2>{{ playlist.name }}</h2>
+                    <p>{{ playlist.items?.total ?? playlist.tracks?.total ?? 0 }} canciones</p>
+                  </div>
+                </a>
+              }
+            </div>
+          }
+        </section>
+      }
     </main>
   </ion-content>
 </ion-app>
