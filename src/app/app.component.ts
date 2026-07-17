@@ -1,15 +1,18 @@
-import { ChangeDetectionStrategy, Component, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, signal } from '@angular/core';
 import {
   IonApp,
   IonButton,
   IonContent,
   IonIcon,
+  IonSelect,
+  IonSelectOption,
   IonSpinner,
   IonText,
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import {
   albumsOutline,
+  checkmarkCircleOutline,
   logInOutline,
   logOutOutline,
   musicalNotes,
@@ -20,10 +23,18 @@ interface SpotifyImage {
   url: string;
 }
 
+interface SpotifyUserProfile {
+  id: string;
+}
+
 interface SpotifyPlaylist {
   id: string;
   name: string;
   images: SpotifyImage[];
+  owner: {
+    id: string;
+    display_name: string | null;
+  };
   external_urls: {
     spotify: string;
   };
@@ -49,7 +60,16 @@ interface SpotifyTokenResponse {
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [IonApp, IonContent, IonButton, IonIcon, IonSpinner, IonText],
+  imports: [
+    IonApp,
+    IonContent,
+    IonButton,
+    IonIcon,
+    IonSelect,
+    IonSelectOption,
+    IonSpinner,
+    IonText,
+  ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -65,11 +85,16 @@ export class AppComponent implements OnInit {
   readonly isLoading = signal(false);
   readonly isConnected = signal(false);
   readonly playlists = signal<SpotifyPlaylist[]>([]);
+  readonly selectedPlaylistId = signal<string | null>(null);
+  readonly selectedPlaylist = computed(() =>
+    this.playlists().find((playlist) => playlist.id === this.selectedPlaylistId()) ?? null,
+  );
   readonly errorMessage = signal<string | null>(null);
 
   constructor() {
     addIcons({
       albumsOutline,
+      checkmarkCircleOutline,
       musicalNotes,
       logInOutline,
       logOutOutline,
@@ -123,12 +148,17 @@ export class AppComponent implements OnInit {
     window.location.assign(`https://accounts.spotify.com/authorize?${params.toString()}`);
   }
 
+  selectPlaylist(playlistId: string | null): void {
+    this.selectedPlaylistId.set(playlistId);
+  }
+
   disconnect(): void {
     sessionStorage.removeItem(this.tokenKey);
     sessionStorage.removeItem(this.tokenExpiryKey);
     sessionStorage.removeItem(this.verifierKey);
     sessionStorage.removeItem(this.stateKey);
     this.playlists.set([]);
+    this.selectedPlaylistId.set(null);
     this.errorMessage.set(null);
     this.isConnected.set(false);
   }
@@ -203,6 +233,22 @@ export class AppComponent implements OnInit {
     this.errorMessage.set(null);
 
     try {
+      const profileResponse = await fetch('https://api.spotify.com/v1/me', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (profileResponse.status === 401) {
+        this.disconnect();
+        throw new Error('La sesión de Spotify ha caducado. Conecta tu cuenta de nuevo.');
+      }
+
+      if (!profileResponse.ok) {
+        throw new Error(`No se pudo cargar tu perfil de Spotify (${profileResponse.status}).`);
+      }
+
+      const profile = (await profileResponse.json()) as SpotifyUserProfile;
       const collected: SpotifyPlaylist[] = [];
       let nextUrl: string | null = 'https://api.spotify.com/v1/me/playlists?limit=50';
 
@@ -223,11 +269,17 @@ export class AppComponent implements OnInit {
         }
 
         const page = (await response.json()) as SpotifyPlaylistsResponse;
-        collected.push(...page.items);
+        collected.push(...page.items.filter((playlist) => playlist.owner.id === profile.id));
         nextUrl = page.next;
       }
 
       this.playlists.set(collected);
+
+      if (collected.length === 1) {
+        this.selectedPlaylistId.set(collected[0].id);
+      } else if (!collected.some((playlist) => playlist.id === this.selectedPlaylistId())) {
+        this.selectedPlaylistId.set(null);
+      }
     } catch (error) {
       this.errorMessage.set(
         error instanceof Error ? error.message : 'No se pudieron cargar tus playlists.',
