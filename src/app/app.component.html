@@ -43,8 +43,8 @@
           <header class="playlists-header">
             <div>
               <p class="eyebrow">Spotify conectado</p>
-              <h1>Elige una playlist</h1>
-              <p class="subtitle">Selecciona la música que quieres utilizar para crear la partida.</p>
+              <h1>Elige tu playlist</h1>
+              <p class="subtitle">Mostramos solo las listas creadas por tu cuenta.</p>
             </div>
 
             <ion-button fill="clear" class="disconnect-button" (click)="disconnect()">
@@ -65,33 +65,48 @@
           } @else if (playlists().length === 0) {
             <div class="empty-state">
               <ion-icon name="albums-outline"></ion-icon>
-              <h2>No encontramos playlists</h2>
-              <p>Crea o guarda una playlist en Spotify y vuelve a conectar.</p>
+              <h2>No tienes playlists creadas</h2>
+              <p>Crea una lista en Spotify y vuelve a conectar.</p>
             </div>
           } @else {
-            <div class="playlist-grid">
-              @for (playlist of playlists(); track playlist.id) {
-                <a
-                  class="playlist-card"
-                  [href]="playlist.external_urls.spotify"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+            <section class="playlist-selector-panel">
+              <label class="selector-label" for="playlist-select">Playlist para la partida</label>
+
+              <ion-select
+                id="playlist-select"
+                interface="action-sheet"
+                placeholder="Selecciona una playlist"
+                [value]="selectedPlaylistId()"
+                (ionChange)="selectPlaylist($event.detail.value)"
+              >
+                @for (playlist of playlists(); track playlist.id) {
+                  <ion-select-option [value]="playlist.id">
+                    {{ playlist.name }} · {{ playlist.items?.total ?? playlist.tracks?.total ?? 0 }} canciones
+                  </ion-select-option>
+                }
+              </ion-select>
+
+              @if (selectedPlaylist(); as playlist) {
+                <article class="selected-playlist-card">
                   @if (playlist.images[0]?.url) {
                     <img [src]="playlist.images[0].url" [alt]="'Portada de ' + playlist.name" />
                   } @else {
-                    <div class="playlist-placeholder" aria-hidden="true">
+                    <div class="selected-playlist-placeholder" aria-hidden="true">
                       <ion-icon name="musical-notes"></ion-icon>
                     </div>
                   }
 
-                  <div class="playlist-info">
+                  <div class="selected-playlist-info">
+                    <div class="selected-title-row">
+                      <ion-icon name="checkmark-circle-outline" aria-hidden="true"></ion-icon>
+                      <span>Playlist seleccionada</span>
+                    </div>
                     <h2>{{ playlist.name }}</h2>
                     <p>{{ playlist.items?.total ?? playlist.tracks?.total ?? 0 }} canciones</p>
                   </div>
-                </a>
+                </article>
               }
-            </div>
+            </section>
           }
         </section>
       }
