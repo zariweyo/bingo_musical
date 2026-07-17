@@ -24,6 +24,22 @@
   - Canciones válidas que han sonado pero que el jugador no ha marcado.
   - El orden real de reproducción cuando sea necesario para revisar la partida.
 
+### Control de reproducción por el anfitrión
+
+**Objetivo:** permitir que el anfitrión gestione Spotify desde la propia aplicación durante la partida.
+
+- El anfitrión podrá controlar la reproducción sin salir de Bingo Musical.
+- Controles previstos:
+  - Reproducir y pausar.
+  - Pasar a la siguiente canción.
+  - Volver a la canción anterior.
+  - Ajustar el volumen.
+  - Seleccionar el dispositivo de reproducción disponible mediante Spotify Connect.
+- La aplicación deberá mostrar el estado actual de reproducción, incluyendo canción, artista, progreso y dispositivo activo.
+- Cada cambio de canción deberá integrarse con el registro persistente de canciones reproducidas de la partida.
+- El control de reproducción no debe marcar automáticamente los cartones de los jugadores.
+- Esta funcionalidad dependerá de los permisos de Spotify necesarios para modificar el estado de reproducción y, cuando corresponda, de una cuenta Spotify Premium.
+
 ### Principio de diseño
 
 La integración con Spotify debe facilitar la comprobación, pero no jugar por el usuario. La atención, el reconocimiento de las canciones y el marcado manual siguen siendo parte esencial del juego.
