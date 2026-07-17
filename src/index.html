@@ -6,47 +6,6 @@
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0f172a">
-  <script>
-    const nativeFetch = window.fetch.bind(window);
-
-    window.fetch = async (input, init) => {
-      const originalUrl = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
-      const isSpotifyPlaylistItems =
-        originalUrl.includes('api.spotify.com/v1/playlists/') &&
-        originalUrl.includes('/items');
-
-      let requestInput = input;
-
-      if (isSpotifyPlaylistItems) {
-        const url = new URL(originalUrl);
-        // The app still asks for the legacy `track` field. Removing the fields
-        // projection lets Spotify return its current `item` representation.
-        url.searchParams.delete('fields');
-        requestInput = typeof input === 'string' ? url.toString() : new Request(url.toString(), input);
-      }
-
-      const response = await nativeFetch(requestInput, init);
-
-      if (response.ok && isSpotifyPlaylistItems) {
-        const data = await response.clone().json();
-
-        if (Array.isArray(data.items)) {
-          data.items = data.items.map((entry) => ({
-            ...entry,
-            track: entry.track ?? entry.item ?? null,
-          }));
-        }
-
-        return new Response(JSON.stringify(data), {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-        });
-      }
-
-      return response;
-    };
-  </script>
 </head>
 <body>
   <app-root></app-root>
