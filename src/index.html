@@ -10,14 +10,24 @@
     const nativeFetch = window.fetch.bind(window);
 
     window.fetch = async (input, init) => {
-      const response = await nativeFetch(input, init);
-      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
+      const originalUrl = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
+      const isSpotifyPlaylistItems =
+        originalUrl.includes('api.spotify.com/v1/playlists/') &&
+        originalUrl.includes('/items');
 
-      if (
-        response.ok &&
-        url.includes('api.spotify.com/v1/playlists/') &&
-        url.includes('/items')
-      ) {
+      let requestInput = input;
+
+      if (isSpotifyPlaylistItems) {
+        const url = new URL(originalUrl);
+        // The app still asks for the legacy `track` field. Removing the fields
+        // projection lets Spotify return its current `item` representation.
+        url.searchParams.delete('fields');
+        requestInput = typeof input === 'string' ? url.toString() : new Request(url.toString(), input);
+      }
+
+      const response = await nativeFetch(requestInput, init);
+
+      if (response.ok && isSpotifyPlaylistItems) {
         const data = await response.clone().json();
 
         if (Array.isArray(data.items)) {
