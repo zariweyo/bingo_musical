@@ -40,6 +40,52 @@
 - El control de reproducción no debe marcar automáticamente los cartones de los jugadores.
 - Esta funcionalidad dependerá de los permisos de Spotify necesarios para modificar el estado de reproducción y, cuando corresponda, de una cuenta Spotify Premium.
 
+### Playlists predefinidas en Firestore
+
+**Objetivo:** ofrecer al anfitrión colecciones preparadas para iniciar partidas sin tener que buscar o montar manualmente una playlist en Spotify.
+
+- Mantener en Firestore un catálogo propio de playlists predefinidas para Bingo Musical.
+- Cada playlist deberá incluir, como mínimo:
+  - Nombre.
+  - Descripción.
+  - Imagen o portada.
+  - Categoría o temática.
+  - Idioma o ámbito musical.
+  - Nivel de dificultad.
+  - Estado activo o publicado.
+  - Indicador de contenido gratuito o premium.
+  - Fecha de creación y actualización.
+- Las canciones de cada playlist deberán almacenarse también en Firestore, incluyendo:
+  - Spotify Track ID.
+  - Título.
+  - Artista o artistas.
+  - Duración.
+  - Posición o criterio de ordenación.
+- Firestore será la fuente de verdad del catálogo del juego y Spotify actuará como sistema de reproducción.
+- Al iniciar una partida, la aplicación podrá:
+  - Leer una playlist predefinida desde Firestore.
+  - Seleccionar todas o una cantidad limitada de canciones.
+  - Mezclar el orden cuando corresponda.
+  - Crear una playlist temporal en la cuenta de Spotify del anfitrión o preparar la cola de reproducción.
+  - Guardar en la partida la selección y el orden definitivos.
+- Guardar las canciones en Firestore permitirá:
+  - Sustituir canciones que dejen de estar disponibles en Spotify.
+  - Evitar depender de cambios realizados en playlists externas.
+  - Reutilizar canciones en distintas categorías.
+  - Versionar y revisar el contenido de las playlists.
+  - Evitar repeticiones entre partidas.
+- Temáticas iniciales posibles:
+  - Éxitos de los 80.
+  - Pop español.
+  - Rock español.
+  - Verano.
+  - Eurovisión.
+  - Disney.
+  - Reguetón.
+  - Canciones de los 2000.
+  - Mix familiar.
+- Como evolución futura, crear un panel de administración para buscar canciones en Spotify, añadirlas al catálogo, ordenarlas, clasificarlas y publicar playlists.
+
 ### Principio de diseño
 
 La integración con Spotify debe facilitar la comprobación, pero no jugar por el usuario. La atención, el reconocimiento de las canciones y el marcado manual siguen siendo parte esencial del juego.
