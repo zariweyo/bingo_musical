@@ -7,15 +7,34 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0f172a">
   <script>
-    // Spotify's current /items response uses `item`, while the application
-    // still consumes the legacy playlist-track shape returned by /tracks.
-    // Rewrite only this endpoint until the typed client is migrated.
     const nativeFetch = window.fetch.bind(window);
-    window.fetch = (input, init) => {
-      if (typeof input === 'string' && input.includes('api.spotify.com/v1/playlists/') && input.includes('/items')) {
-        input = input.replace('/items', '/tracks');
+
+    window.fetch = async (input, init) => {
+      const response = await nativeFetch(input, init);
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
+
+      if (
+        response.ok &&
+        url.includes('api.spotify.com/v1/playlists/') &&
+        url.includes('/items')
+      ) {
+        const data = await response.clone().json();
+
+        if (Array.isArray(data.items)) {
+          data.items = data.items.map((entry) => ({
+            ...entry,
+            track: entry.track ?? entry.item ?? null,
+          }));
+        }
+
+        return new Response(JSON.stringify(data), {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
       }
-      return nativeFetch(input, init);
+
+      return response;
     };
   </script>
 </head>
