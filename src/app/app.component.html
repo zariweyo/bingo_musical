@@ -1,6 +1,6 @@
 <ion-app>
   <ion-content [fullscreen]="true">
-    <main class="landing">
+    <main class="landing" [class.has-card]="bingoTracks().length > 0">
       @if (!isConnected()) {
         <section class="hero">
           <div class="brand-mark" aria-hidden="true">
@@ -43,8 +43,8 @@
           <header class="playlists-header">
             <div>
               <p class="eyebrow">Spotify conectado</p>
-              <h1>Elige tu playlist</h1>
-              <p class="subtitle">Mostramos solo las listas creadas por tu cuenta.</p>
+              <h1>Bingo Musical</h1>
+              <p class="subtitle">Elige una lista y marca las canciones conforme vayan sonando.</p>
             </div>
 
             <ion-button fill="clear" class="disconnect-button" (click)="disconnect()">
@@ -54,7 +54,7 @@
           </header>
 
           @if (errorMessage()) {
-            <p class="error-message">{{ errorMessage() }}</p>
+            <p class="error-message page-error">{{ errorMessage() }}</p>
           }
 
           @if (isLoading()) {
@@ -69,44 +69,92 @@
               <p>Crea una lista en Spotify y vuelve a conectar.</p>
             </div>
           } @else {
-            <section class="playlist-selector-panel">
-              <label class="selector-label" for="playlist-select">Playlist para la partida</label>
-
-              <ion-select
-                id="playlist-select"
-                interface="action-sheet"
-                placeholder="Selecciona una playlist"
-                [value]="selectedPlaylistId()"
-                (ionChange)="selectPlaylist($event.detail.value)"
-              >
-                @for (playlist of playlists(); track playlist.id) {
-                  <ion-select-option [value]="playlist.id">
-                    {{ playlist.name }} · {{ playlist.items?.total ?? playlist.tracks?.total ?? 0 }} canciones
-                  </ion-select-option>
-                }
-              </ion-select>
+            <section class="game-controls">
+              <div class="playlist-control">
+                <label class="selector-label" for="playlist-select">Playlist para la partida</label>
+                <ion-select
+                  id="playlist-select"
+                  interface="action-sheet"
+                  placeholder="Selecciona una playlist"
+                  [value]="selectedPlaylistId()"
+                  [disabled]="isGeneratingCard()"
+                  (ionChange)="selectPlaylist($event.detail.value)"
+                >
+                  @for (playlist of playlists(); track playlist.id) {
+                    <ion-select-option [value]="playlist.id">
+                      {{ playlist.name }} · {{ playlist.items?.total ?? playlist.tracks?.total ?? 0 }} canciones
+                    </ion-select-option>
+                  }
+                </ion-select>
+              </div>
 
               @if (selectedPlaylist(); as playlist) {
-                <article class="selected-playlist-card">
+                <div class="playlist-summary">
                   @if (playlist.images[0]?.url) {
                     <img [src]="playlist.images[0].url" [alt]="'Portada de ' + playlist.name" />
-                  } @else {
-                    <div class="selected-playlist-placeholder" aria-hidden="true">
-                      <ion-icon name="musical-notes"></ion-icon>
-                    </div>
                   }
-
-                  <div class="selected-playlist-info">
-                    <div class="selected-title-row">
-                      <ion-icon name="checkmark-circle-outline" aria-hidden="true"></ion-icon>
-                      <span>Playlist seleccionada</span>
-                    </div>
-                    <h2>{{ playlist.name }}</h2>
-                    <p>{{ playlist.items?.total ?? playlist.tracks?.total ?? 0 }} canciones</p>
+                  <div>
+                    <span>Lista seleccionada</span>
+                    <strong>{{ playlist.name }}</strong>
                   </div>
-                </article>
+                </div>
+
+                <ion-button
+                  class="regenerate-button"
+                  fill="outline"
+                  [disabled]="isGeneratingCard()"
+                  (click)="generateBingoCard()"
+                >
+                  @if (isGeneratingCard()) {
+                    <ion-spinner slot="start" name="crescent"></ion-spinner>
+                  } @else {
+                    <ion-icon slot="start" name="refresh-outline"></ion-icon>
+                  }
+                  Nuevo cartón
+                </ion-button>
               }
             </section>
+
+            @if (isGeneratingCard()) {
+              <div class="loading-state card-loading">
+                <ion-spinner name="crescent"></ion-spinner>
+                <p>Eligiendo 15 canciones al azar...</p>
+              </div>
+            } @else if (bingoTracks().length > 0) {
+              <section class="bingo-section">
+                <div class="bingo-toolbar">
+                  <div>
+                    <p class="bingo-kicker">Tu cartón</p>
+                    <h2>15 canciones · {{ markedCount() }} marcadas</h2>
+                  </div>
+                  <p class="landscape-hint">Gira el móvil para jugar en horizontal</p>
+                </div>
+
+                <div class="bingo-card" role="grid" aria-label="Cartón de bingo musical">
+                  @for (track of bingoTracks(); track track.id) {
+                    <button
+                      type="button"
+                      class="bingo-cell"
+                      [class.marked]="isTrackMarked(track.id)"
+                      [attr.aria-pressed]="isTrackMarked(track.id)"
+                      (click)="toggleTrack(track.id)"
+                    >
+                      <img
+                        [src]="track.album.images[0].url"
+                        [alt]="'Portada de ' + track.name"
+                      />
+                      <span class="track-overlay">
+                        <strong>{{ track.name }}</strong>
+                        <small>{{ track.artists[0]?.name ?? 'Artista desconocido' }}</small>
+                      </span>
+                      <span class="mark-badge" aria-hidden="true">
+                        <ion-icon name="checkmark-circle"></ion-icon>
+                      </span>
+                    </button>
+                  }
+                </div>
+              </section>
+            }
           }
         </section>
       }
