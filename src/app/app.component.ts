@@ -37,7 +37,7 @@ interface SpotifyTrack {
   id: string;
   name: string;
   type: string;
-  is_local: boolean;
+  is_local?: boolean;
   artists: SpotifyArtist[];
   album: {
     images: SpotifyImage[];
@@ -48,7 +48,9 @@ interface SpotifyTrack {
 }
 
 interface SpotifyPlaylistItem {
-  track: SpotifyTrack | null;
+  item: SpotifyTrack | null;
+  is_local?: boolean;
+  track?: SpotifyTrack | null;
 }
 
 interface SpotifyPlaylistItemsResponse {
@@ -209,10 +211,9 @@ export class AppComponent implements OnInit {
 
     try {
       const tracks: SpotifyTrack[] = [];
-      const fields = 'items(track(id,name,type,is_local,artists(name),album(images),external_urls)),next';
       let nextUrl: string | null =
         `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/items` +
-        `?limit=50&additional_types=track&fields=${encodeURIComponent(fields)}`;
+        '?limit=50&additional_types=track';
 
       while (nextUrl) {
         const response = await fetch(nextUrl, {
@@ -232,13 +233,17 @@ export class AppComponent implements OnInit {
 
         const page = (await response.json()) as SpotifyPlaylistItemsResponse;
 
-        for (const item of page.items) {
-          const track = item.track;
+        for (const playlistItem of page.items) {
+          const track = playlistItem.item ?? playlistItem.track ?? null;
+          const isLocal = playlistItem.is_local ?? track?.is_local ?? false;
+
           if (
             track &&
             track.type === 'track' &&
-            !track.is_local &&
+            !isLocal &&
             track.id &&
+            track.name &&
+            track.artists?.length &&
             track.album?.images?.length
           ) {
             tracks.push(track);
@@ -440,7 +445,8 @@ export class AppComponent implements OnInit {
   }
 
   private getRedirectUri(): string {
-    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const isLocalhost =
+      window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
     if (isLocalhost) {
       return `http://127.0.0.1:${window.location.port || '8100'}/`;
