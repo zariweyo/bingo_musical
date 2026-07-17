@@ -296,10 +296,13 @@ export class AppComponent implements OnInit {
   }
 
   private getRedirectUri(): string {
-    const basePath = window.location.pathname.includes('/bingo_musical')
-      ? '/bingo_musical/'
-      : '/';
-    return `${window.location.origin}${basePath}`;
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+    if (isLocalhost) {
+      return `http://127.0.0.1:${window.location.port || '8100'}/`;
+    }
+
+    return 'https://zwymobile.com/bingo_musical/';
   }
 
   private clearCallbackParameters(): void {
