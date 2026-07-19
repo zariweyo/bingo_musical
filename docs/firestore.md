@@ -6,6 +6,16 @@ The repository includes `firestore.rules` as the production-oriented source of t
 
 Do not deploy these rules until the application writes documents using the structure described below. Anonymous authentication is already implemented, but the current local room and round prototype has not yet been migrated to these Firestore paths.
 
+## AngularFire integration rule
+
+AngularFire is used for Angular dependency injection and provider registration. Firebase SDK factories, constants and operations must be imported from the official modular SDK packages:
+
+- `firebase/app` for `initializeApp`.
+- `firebase/auth` for `getAuth`, persistence constants and authentication operations.
+- `firebase/firestore` for `getFirestore` and low-level Firestore operations when needed.
+
+Do not import Firebase SDK constructor-like values such as `browserLocalPersistence` from AngularFire wrappers. Production minification can expose wrapper incompatibilities and cause runtime errors such as `TypeError: t is not a constructor`.
+
 ## Anonymous authentication
 
 Firebase Authentication is initialized during Angular bootstrap and every browser signs in anonymously in the background through `AnonymousAuthService`.
@@ -108,6 +118,7 @@ Before using CLI deployment, verify that the active Firebase project is `simple-
 - Anonymous Authentication is enabled in Firebase Console.
 - The app signs in before any Firestore operation.
 - Authentication failures are surfaced and do not silently continue with unauthenticated Firestore requests.
+- Firebase factories and Auth persistence values are imported from `firebase/*`, not from AngularFire wrappers.
 - Room documents store the authenticated host `uid` as `hostId`.
 - Participant and card document IDs match the authenticated participant `uid`.
 - Room, participant, round and card paths match the documented model.
