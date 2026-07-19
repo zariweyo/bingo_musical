@@ -12,11 +12,11 @@ Focus only on:
 2. Mobile-first UI and navigation.
 3. Spotify authentication using Authorization Code with PKCE.
 4. Importing playlist metadata and tracks.
-5. Firebase and Cloud Firestore foundations.
+5. Firebase Authentication and Cloud Firestore foundations.
 6. Migrating local room, participant and card state to Firestore incrementally.
 7. GitHub Pages compatibility.
 
-Firebase and Firestore are active. Firebase Authentication and Cloud Functions are not yet in scope unless explicitly requested.
+Firebase, anonymous Firebase Authentication and Firestore are active. Cloud Functions remain out of scope unless explicitly requested.
 
 ## Technical rules
 
@@ -24,8 +24,8 @@ Firebase and Firestore are active. Firebase Authentication and Cloud Functions a
 - Use strict TypeScript; avoid `any`.
 - Use Ionic components when they improve mobile behavior or accessibility.
 - Keep components small and feature-oriented.
-- Put external API and Firestore access behind services.
-- UI components must not access Firestore directly.
+- Put external API, authentication and Firestore access behind services.
+- UI components must not access Firebase Auth or Firestore directly.
 - Never commit secrets, access tokens, Spotify client secrets, Firebase service-account files or Admin SDK credentials.
 - Firebase browser configuration is public client configuration and may be committed.
 - Browser authorization must use PKCE.
@@ -64,10 +64,14 @@ Create folders only when they contain real code; do not generate empty architect
 
 - Use the modular Firebase SDK through AngularFire providers.
 - Keep Firebase browser configuration in `src/environments/firebase.config.ts`.
-- Centralize Firestore operations under `src/app/core/firebase/`.
+- Centralize Firebase Authentication and Firestore operations under `src/app/core/firebase/`.
+- Sign every browser in anonymously during application bootstrap.
+- Use local Firebase Auth persistence so the anonymous `uid` survives reloads and future visits from the same browser profile.
+- Use the Firebase `uid` as the stable authorization identity for hosts and participants.
+- Do not expose the `uid` as a public room code or treat it as a secret.
 - Firestore rules are currently in test mode and permit writes only as a temporary development measure.
-- Before public multiplayer is enabled, replace test-mode rules with restrictive rules backed by an explicit authentication and authorization model.
-- Do not add Firebase Authentication, Cloud Functions, Storage or Analytics behavior until requested or required by an implemented feature.
+- Before public multiplayer is enabled, replace test-mode rules with the versioned restrictive rules in `firestore.rules` and test them in the Firebase Emulator Suite.
+- Do not add Cloud Functions, Storage or Analytics behavior until requested or required by an implemented feature.
 
 ## Spotify constraints
 
