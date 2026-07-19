@@ -35,7 +35,10 @@ Preparing a music bingo manually requires choosing songs, creating different car
 ## Current implemented prototype
 
 - Spotify sign-in uses Authorization Code with PKCE.
-- Logging out clears the local application session, and a new connection forces Spotify to show its authorization dialog so another account can be selected.
+- Spotify access tokens are renewed automatically before expiry by using the PKCE refresh token.
+- Spotify API requests retry once after a `401` with a freshly renewed access token instead of immediately disconnecting the host.
+- The refresh token is preserved when Spotify rotates only the access token and does not return a replacement refresh token.
+- Logging out clears the access token, refresh token and local Spotify application session; a new connection forces Spotify to show its authorization dialog so another account can be selected.
 - Firebase Authentication is initialized during Angular bootstrap.
 - Every browser signs in anonymously in the background before the application finishes starting.
 - Anonymous authentication uses local persistence, so Firebase normally reuses the same `uid` across reloads and future visits from the same browser profile.
@@ -56,6 +59,16 @@ Preparing a music bingo manually requires choosing songs, creating different car
 - Firebase access is centralized behind authentication and Firestore services; current room and round state has not yet been migrated from browser storage.
 - A production-oriented `firestore.rules` file is stored in the repository, together with its expected data model and deployment guide in `docs/firestore.md`.
 - Real room membership, player cards, QR links and multiplayer synchronization are still mocked and will be connected to Firestore in later changes.
+
+## Spotify token lifecycle
+
+- The short-lived access token is stored in `sessionStorage` together with an expiry timestamp calculated with a one-minute safety margin.
+- The refresh token is stored in `localStorage` so the connection can be recovered after an access-token expiry or a browser tab restart.
+- Before every Spotify request, the application verifies that the access token is still valid and renews it when necessary.
+- Concurrent requests share one refresh operation to avoid racing multiple refresh-token exchanges.
+- If Spotify returns `401`, the request is retried once after forcing a refresh.
+- The application only clears the Spotify session when renewal fails or Spotify rejects the retried request.
+- A manual logout always removes both tokens.
 
 ## Firebase Authentication and Firestore
 
@@ -86,7 +99,7 @@ Preparing a music bingo manually requires choosing songs, creating different car
 ### Included
 
 - Responsive mobile-first interface.
-- Spotify sign-in with PKCE.
+- Spotify sign-in with PKCE and automatic access-token renewal.
 - Anonymous Firebase Authentication in the background.
 - Persistent browser-level Firebase user identity.
 - Playlist URL and URI parsing.
@@ -118,20 +131,3 @@ Preparing a music bingo manually requires choosing songs, creating different car
 - Authentication should happen invisibly unless it fails.
 - Participants should not need to re-enter a room number for each new round.
 - The card must remain legible on a small phone and should use landscape orientation during play.
-- Portrait orientation must remain usable and should show guidance rather than blocking the user.
-- During a game, the card should occupy the screen and non-game controls should be kept to a minimum.
-- The app must never imply that it owns or redistributes Spotify audio.
-- Failures must be recoverable without losing the selected playlist or stable room number.
-- Public client configuration may be committed, but private credentials and unrestricted production data access are forbidden.
-- Firestore access must be denied by default and granted only to authenticated hosts or participants with the minimum required permissions.
-
-## First milestones
-
-1. Hello-world deployment.
-2. Visual home and playlist-import flow using mocks.
-3. Spotify developer app and PKCE login.
-4. Real playlist import with pagination.
-5. Persistent local host room and fullscreen host card.
-6. Firebase, anonymous Authentication and Firestore application foundation.
-7. Persisted rooms, participants and multi-round cards.
-8. Firestore Emulator security tests and production rules deployment.
