@@ -26,6 +26,10 @@ service cloud.firestore {
       return get(roomPath(roomId)).data;
     }
 
+    function isSixDigitCode(roomId) {
+      return roomId.matches('^[0-9]{6}$');
+    }
+
     function isHost(roomId) {
       return isSignedIn() && roomExists(roomId) && roomData(roomId).hostId == request.auth.uid;
     }
@@ -38,41 +42,65 @@ service cloud.firestore {
       return isHost(roomId) || isParticipant(roomId);
     }
 
-    function roomIsJoinable(roomId) {
-      return roomExists(roomId) && roomData(roomId).status == 'open';
+    function roomIsExpiredData(data) {
+      return !data.keys().hasAll(['expiresAt']) || data.expiresAt <= request.time;
     }
 
-    match /rooms/{roomId} {
-      // Authenticated users may fetch a room by its exact code to join it,
-      // but listing or searching all rooms is forbidden.
-      allow get: if isSignedIn();
-      allow list: if false;
+    function roomIsJoinable(roomId) {
+      return roomExists(roomId)
+        && roomData(roomId).status == 'open'
+        && !roomIsExpiredData(roomData(roomId));
+    }
 
-      allow create: if isSignedIn()
-        && request.resource.data.keys().hasOnly([
+    function validRoomShape(roomId) {
+      return request.resource.data.keys().hasOnly([
           'hostId',
           'code',
           'status',
           'createdAt',
           'updatedAt',
+          'expiresAt',
           'currentRoundId',
           'playlistId',
           'playlistName'
         ])
         && request.resource.data.hostId == request.auth.uid
         && request.resource.data.code == roomId
+        && isSixDigitCode(roomId)
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt <= request.time + duration.value(2, 'h');
+    }
+
+    match /rooms/{roomId} {
+      // Exact-code lookup is allowed, but listing all active rooms is forbidden.
+      allow get: if isSignedIn();
+      allow list: if false;
+
+      allow create: if isSignedIn()
+        && validRoomShape(roomId)
         && request.resource.data.status == 'open';
 
-      allow update: if isHost(roomId)
-        && request.resource.data.hostId == resource.data.hostId
-        && request.resource.data.code == resource.data.code;
+      // The current host can maintain the room without changing its identity or TTL.
+      // A different signed-in user may only claim an already expired code, placing it
+      // in resetting state while the old participants, rounds and cards are deleted.
+      allow update: if (
+          isHost(roomId)
+          && request.resource.data.hostId == resource.data.hostId
+          && request.resource.data.code == resource.data.code
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.expiresAt == resource.data.expiresAt
+        ) || (
+          isSignedIn()
+          && roomIsExpiredData(resource.data)
+          && validRoomShape(roomId)
+          && request.resource.data.status == 'resetting'
+        );
 
       allow delete: if isHost(roomId);
 
       match /participants/{participantId} {
         allow read: if isHost(roomId) || isOwner(participantId);
 
-        // A signed-in user may join an open room only as themselves.
         allow create: if isOwner(participantId)
           && roomIsJoinable(roomId)
           && request.resource.data.keys().hasOnly([
@@ -85,8 +113,6 @@ service cloud.firestore {
           && request.resource.data.userId == request.auth.uid
           && request.resource.data.active == true;
 
-        // Participants may update their own profile. The host may only
-        // deactivate or maintain participant records, never change identity.
         allow update: if (isOwner(participantId) || isHost(roomId))
           && request.resource.data.userId == resource.data.userId;
 
@@ -94,15 +120,14 @@ service cloud.firestore {
       }
 
       match /rounds/{roundId} {
-        allow read: if isRoomMember(roomId);
+        allow read: if isRoomMember(roomId) && !roomIsExpiredData(roomData(roomId));
         allow create, update, delete: if isHost(roomId);
 
         match /cards/{cardId} {
-          allow read: if isHost(roomId) || isOwner(cardId);
+          allow read: if (isHost(roomId) || isOwner(cardId))
+            && !roomIsExpiredData(roomData(roomId));
           allow create, delete: if isHost(roomId);
 
-          // A participant may only change play-state fields on their own card.
-          // Card ownership, songs and round identity remain host-controlled.
           allow update: if isHost(roomId)
             || (isOwner(cardId)
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -115,7 +140,6 @@ service cloud.firestore {
       }
     }
 
-    // Deny every collection that is not explicitly covered above.
     match /{document=**} {
       allow read, write: if false;
     }
