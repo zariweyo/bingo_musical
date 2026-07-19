@@ -4,20 +4,33 @@
 
 The repository includes `firestore.rules` as the production-oriented source of truth for Cloud Firestore access control. The rules are intentionally stricter than the current test-mode rules configured in the Firebase console.
 
-Do not deploy these rules until the application implements the authentication and document structure described below. Deploying them before that work is complete will block the current unauthenticated prototype.
+Do not deploy these rules until the application writes documents using the structure described below. Anonymous authentication is already implemented, but the current local room and round prototype has not yet been migrated to these Firestore paths.
 
-## Required authentication
+## Anonymous authentication
 
-Production rules require `request.auth` for every permitted operation.
+Firebase Authentication is initialized during Angular bootstrap and every browser signs in anonymously in the background through `AnonymousAuthService`.
 
-Before deployment:
+The service:
 
-1. Enable **Anonymous Authentication** in Firebase Authentication.
-2. Sign every host and participant in anonymously before reading or writing game data.
-3. Keep the returned Firebase `uid` stable for the browser session.
-4. Store that `uid` as `hostId` for hosts and `userId` for participants.
+1. Uses Firebase local authentication persistence.
+2. Reuses an existing anonymous user when one is already stored in the browser.
+3. Creates a new anonymous user with `signInAnonymously` when needed.
+4. Exposes the current Firebase user and `uid` to application services.
+5. Completes before the Angular application finishes starting.
 
-Anonymous authentication does not require players to create an account, but it gives Firestore a trustworthy identity for authorization.
+Anonymous authentication does not require registration, email or password, but gives Firestore a trustworthy identity for authorization.
+
+The anonymous `uid` normally remains stable across reloads and future visits from the same browser profile. It can change when the user clears site data, uses private browsing, changes browser profile or manually deletes the Firebase user.
+
+Use that `uid` as:
+
+- `hostId` for rooms owned by the host.
+- `userId` for participant records.
+- The document ID of each participant and participant-owned card.
+
+The `uid` is not a secret, but it must not be used as the public invitation code.
+
+Before testing authentication, enable **Anonymous Authentication** in Firebase Console under **Authentication → Sign-in method**. If the provider is disabled, application bootstrap will fail because the background sign-in cannot complete.
 
 ## Expected data model
 
@@ -61,7 +74,7 @@ The room document ID must equal its public room code. Participant and card docum
 ## Access model
 
 - Authenticated users may fetch a room by an exact code, but cannot list all rooms.
-- Only the host can create, update or delete their room.
+- Only the host whose `uid` equals `hostId` can create, update or delete their room.
 - A participant may join an open room only under their own `uid`.
 - Hosts can manage participants, rounds and cards in their room.
 - Participants can read only their own participant record and card.
@@ -72,10 +85,11 @@ The room document ID must equal its public room code. Participant and card docum
 
 1. Open Firebase Console.
 2. Select project `simple-estatico`.
-3. Open **Firestore Database → Rules**.
-4. Replace the editor contents with the complete contents of `firestore.rules`.
-5. Review the active application version and publish the rules.
-6. Test host and participant flows immediately after publishing.
+3. Confirm Anonymous Authentication is enabled.
+4. Open **Firestore Database → Rules**.
+5. Replace the editor contents with the complete contents of `firestore.rules`.
+6. Review the active application version and publish the rules.
+7. Test host and participant flows immediately after publishing.
 
 ## Deployment with Firebase CLI
 
@@ -91,8 +105,11 @@ Before using CLI deployment, verify that the active Firebase project is `simple-
 
 ## Production checklist
 
-- Anonymous Authentication is enabled.
+- Anonymous Authentication is enabled in Firebase Console.
 - The app signs in before any Firestore operation.
+- Authentication failures are surfaced and do not silently continue with unauthenticated Firestore requests.
+- Room documents store the authenticated host `uid` as `hostId`.
+- Participant and card document IDs match the authenticated participant `uid`.
 - Room, participant, round and card paths match the documented model.
 - Server timestamps are used for audit fields.
 - Room codes are sufficiently resistant to guessing or rate-limited through the application flow.
@@ -100,6 +117,8 @@ Before using CLI deployment, verify that the active Firebase project is `simple-
 - Test-mode rules are no longer active.
 - No service-account credentials or private keys are included in the client repository.
 
-## Important limitation
+## Important limitations
+
+Anonymous authentication identifies a browser installation, not a verified human identity. Clearing browser data can orphan ownership of rooms created with the previous anonymous `uid`. Before supporting long-lived rooms, consider an account-linking or recovery strategy for hosts.
 
 Firestore rules can authorize access, but they cannot fully prevent automated room-code guessing when clients are allowed to fetch a room by exact code. Before public launch, consider longer invitation codes, expiring rooms, App Check and rate limiting through a trusted backend or Cloud Function.
