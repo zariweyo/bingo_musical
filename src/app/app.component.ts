@@ -181,6 +181,7 @@ export class AppComponent implements OnInit {
       code_challenge_method: 'S256',
       code_challenge: challenge,
       state,
+      show_dialog: 'true',
     });
 
     window.location.assign(`https://accounts.spotify.com/authorize?${params.toString()}`);
