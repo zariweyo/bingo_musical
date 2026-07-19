@@ -48,6 +48,7 @@ Preparing a music bingo manually requires choosing songs, creating different car
 - Starting another bingo generates a new host card for a new round without requiring participants to enter a new room number.
 - Firebase and Cloud Firestore are initialized in the Angular application through AngularFire.
 - Firebase access is centralized behind a Firestore service; current room and round state has not yet been migrated from browser storage.
+- A production-oriented `firestore.rules` file is stored in the repository, together with its expected data model and deployment guide in `docs/firestore.md`.
 - Real room membership, player cards, QR links and multiplayer synchronization are still mocked and will be connected to Firestore in later changes.
 
 ## Firebase and Firestore
@@ -56,7 +57,11 @@ Preparing a music bingo manually requires choosing songs, creating different car
 - The browser application uses the public Firebase web configuration stored in `src/environments/firebase.config.ts`.
 - Cloud Firestore is registered during Angular bootstrap.
 - Application code should access Firestore through services under `src/app/core/firebase/`, not directly from UI components.
-- Firestore security rules are currently in test mode and allow writes. This is temporary for development only and must be replaced with restrictive production rules before public multiplayer data is enabled.
+- Firestore security rules are currently in test mode and allow writes. This is temporary for development only.
+- `firestore.rules` contains the intended production authorization model and should replace test-mode rules only after Firebase Authentication and the documented Firestore paths have been implemented.
+- The production model uses anonymous Firebase Authentication so players do not need accounts while Firestore can still identify hosts and participants securely.
+- The expected production collections are `rooms`, room-scoped `participants`, `rounds` and participant-owned `cards`.
+- Complete deployment instructions, data fields, access rules, limitations and a production checklist are maintained in `docs/firestore.md`.
 - No Firebase service-account credentials, admin SDK keys or other private secrets may be committed to the repository.
 
 ## Room and round model
@@ -79,14 +84,16 @@ Preparing a music bingo manually requires choosing songs, creating different car
 - Deterministic unique card generation.
 - Local in-memory or browser-storage game prototype.
 - Firebase and Cloud Firestore application foundation.
+- Versioned production-oriented Firestore rules and deployment documentation.
 - Host and player UI prototypes.
 - GitHub Pages deployment.
 
 ### Excluded for now
 
-- Firebase Authentication and Cloud Functions.
-- Production Firestore security rules and authorization model.
+- Firebase Authentication implementation in the application.
+- Deployment of production Firestore security rules.
 - Persisted multiplayer room synchronization.
+- Cloud Functions and trusted backend rate limiting.
 - Payments and prizes.
 - Audio streaming or playback inside the application.
 - Native Android and iOS packages.
@@ -104,6 +111,7 @@ Preparing a music bingo manually requires choosing songs, creating different car
 - The app must never imply that it owns or redistributes Spotify audio.
 - Failures must be recoverable without losing the selected playlist or stable room number.
 - Public client configuration may be committed, but private credentials and unrestricted production data access are forbidden.
+- Firestore access must be denied by default and granted only to authenticated hosts or participants with the minimum required permissions.
 
 ## First milestones
 
@@ -113,5 +121,5 @@ Preparing a music bingo manually requires choosing songs, creating different car
 4. Real playlist import with pagination.
 5. Persistent local host room and fullscreen host card.
 6. Firebase and Firestore application foundation.
-7. Persisted rooms, participants and multi-round cards.
-8. Production authentication and Firestore security rules.
+7. Anonymous authentication and persisted rooms, participants and multi-round cards.
+8. Firestore Emulator security tests and production rules deployment.
