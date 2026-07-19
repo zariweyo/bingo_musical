@@ -31,6 +31,9 @@ Do not activate Firebase yet. Firebase-related code may exist only as clearly ma
 - Use Spanish for the current user-facing UI.
 - Prefer immutable models and pure helper functions.
 - Add tests for URL parsing, card generation and scoring rules when implemented.
+- Make all implementation changes on the `develop` branch unless explicitly instructed otherwise.
+- Always update the relevant project documentation in the same change so it accurately describes the behavior that was actually implemented.
+- A feature or fix is not complete when its implementation and documentation disagree.
 
 ## Proposed structure
 
