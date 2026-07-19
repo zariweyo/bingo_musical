@@ -14,9 +14,11 @@ Preparing a music bingo manually requires choosing songs, creating different car
 4. Reviews the imported songs.
 5. Chooses card size and winning patterns.
 6. Creates a private room.
-7. Shares a code or QR link.
-8. Records the songs that have played.
-9. Reviews and validates line or bingo claims.
+7. Opens the host card in a fullscreen, distraction-free game view.
+8. Shares a code or QR link.
+9. Records the songs that have played.
+10. Reviews and validates line or bingo claims.
+11. Can cancel the current game and return to playlist selection.
 
 ### Player
 
@@ -25,6 +27,18 @@ Preparing a music bingo manually requires choosing songs, creating different car
 3. Receives a unique card.
 4. Marks songs as they play.
 5. Claims line or bingo.
+
+## Current implemented prototype
+
+- Spotify sign-in uses Authorization Code with PKCE.
+- Logging out clears the local application session, and a new connection forces Spotify to show its authorization dialog so another account can be selected.
+- The host selects one of their own Spotify playlists.
+- Selecting a playlist generates a 15-song card.
+- Once generated, the host card opens in a fullscreen game view.
+- The fullscreen header only exposes the host actions `Cerrar` and `Compartir`.
+- `Cerrar` asks for confirmation, cancels the current local game and returns to playlist selection.
+- `Compartir` opens a demo dialog with the temporary room code `4827`.
+- Room creation, real codes, QR links and multiplayer synchronization are still mocked and will be connected later.
 
 ## Initial scope
 
@@ -54,6 +68,7 @@ Preparing a music bingo manually requires choosing songs, creating different car
 - A host should understand how to start a game without instructions.
 - Players should join without creating an account.
 - The card must remain legible on a small phone.
+- During a game, the card should occupy the screen and non-game controls should be kept to a minimum.
 - The app must never imply that it owns or redistributes Spotify audio.
 - Failures must be recoverable without losing the selected playlist.
 
@@ -63,6 +78,6 @@ Preparing a music bingo manually requires choosing songs, creating different car
 2. Visual home and playlist-import flow using mocks.
 3. Spotify developer app and PKCE login.
 4. Real playlist import with pagination.
-5. Card generator and preview.
-6. Local multiplayer simulation.
+5. Card generator and fullscreen host preview.
+6. Local room-code and multiplayer simulation.
 7. Firebase design and activation.
