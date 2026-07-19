@@ -32,6 +32,7 @@ Do not activate Firebase yet. Firebase-related code may exist only as clearly ma
 - Prefer immutable models and pure helper functions.
 - Add tests for URL parsing, card generation and scoring rules when implemented.
 - Make all implementation changes on the `develop` branch unless explicitly instructed otherwise.
+- When the user asks to publish or merge completed work, merge `develop` directly into `main` without creating a pull request, unless the user explicitly requests a PR.
 - Always update the relevant project documentation in the same change so it accurately describes the behavior that was actually implemented.
 - A feature or fix is not complete when its implementation and documentation disagree.
 
