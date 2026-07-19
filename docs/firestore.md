@@ -2,9 +2,9 @@
 
 ## Purpose
 
-The repository includes `firestore.rules` as the production-oriented source of truth for Cloud Firestore access control. The rules are intentionally stricter than the current test-mode rules configured in the Firebase console.
+The repository includes `firestore.rules` as the production-oriented source of truth for Cloud Firestore access control. The rules are intentionally stricter than test-mode rules.
 
-Do not deploy these rules until the application writes documents using the structure described below. Anonymous authentication is already implemented, but the current local room and round prototype has not yet been migrated to these Firestore paths.
+Real room reservation and participant membership now use the Firestore paths described below. Deploy and test the repository rules before relying on the two-hour room lifecycle in production.
 
 ## AngularFire integration rule
 
@@ -12,48 +12,35 @@ AngularFire is used for Angular dependency injection and provider registration. 
 
 - `firebase/app` for `initializeApp`.
 - `firebase/auth` for `getAuth`, persistence constants and authentication operations.
-- `firebase/firestore` for `getFirestore` and low-level Firestore operations when needed.
+- `firebase/firestore` for transactions and Firestore document operations.
 
-Do not import Firebase SDK constructor-like values such as `browserLocalPersistence` from AngularFire wrappers. Production minification can expose wrapper incompatibilities and cause runtime errors such as `TypeError: t is not a constructor`.
+Do not import constructor-like Firebase values such as `browserLocalPersistence` from AngularFire wrappers. Production minification can otherwise cause errors such as `TypeError: t is not a constructor`.
 
 ## Anonymous authentication
 
-Firebase Authentication is initialized during Angular bootstrap and every browser signs in anonymously in the background through `AnonymousAuthService`.
+Firebase Authentication initializes during Angular bootstrap and every browser signs in anonymously through `AnonymousAuthService`.
 
-The service:
+The anonymous `uid` is used as:
 
-1. Uses Firebase local authentication persistence.
-2. Reuses an existing anonymous user when one is already stored in the browser.
-3. Creates a new anonymous user with `signInAnonymously` when needed.
-4. Exposes the current Firebase user and `uid` to application services.
-5. Completes before the Angular application finishes starting.
+- `hostId` for rooms owned by the host;
+- `userId` and document ID for participant records;
+- the document ID of participant-owned cards.
 
-Anonymous authentication does not require registration, email or password, but gives Firestore a trustworthy identity for authorization.
+The `uid` is not a secret and must not be used as the public invitation code. Enable **Anonymous Authentication** in Firebase Console under **Authentication → Sign-in method** before testing.
 
-The anonymous `uid` normally remains stable across reloads and future visits from the same browser profile. It can change when the user clears site data, uses private browsing, changes browser profile or manually deletes the Firebase user.
-
-Use that `uid` as:
-
-- `hostId` for rooms owned by the host.
-- `userId` for participant records.
-- The document ID of each participant and participant-owned card.
-
-The `uid` is not a secret, but it must not be used as the public invitation code.
-
-Before testing authentication, enable **Anonymous Authentication** in Firebase Console under **Authentication → Sign-in method**. If the provider is disabled, application bootstrap will fail because the background sign-in cannot complete.
-
-## Expected data model
+## Data model
 
 ```text
-rooms/{roomCode}
+rooms/{sixDigitRoomCode}
   hostId: string
   code: string
-  status: "open" | "closed"
+  status: "open" | "closed" | "resetting"
   createdAt: timestamp
   updatedAt: timestamp
-  currentRoundId?: string | null
-  playlistId?: string | null
-  playlistName?: string | null
+  expiresAt: timestamp
+  currentRoundId: string | null
+  playlistId: string | null
+  playlistName: string | null
 
 rooms/{roomCode}/participants/{userId}
   userId: string
@@ -79,16 +66,29 @@ rooms/{roomCode}/rounds/{roundId}/cards/{userId}
   updatedAt: timestamp
 ```
 
-The room document ID must equal its public room code. Participant and card document IDs must equal the authenticated user's Firebase `uid`.
+The room document ID and `code` field must be the same six-digit value. Participant and card document IDs must equal the authenticated Firebase `uid`.
+
+## Two-hour room lifecycle
+
+- New rooms must expire no more than two hours after the Firestore request time.
+- Participants can join only when the room is `open` and `expiresAt` is still in the future.
+- Active codes cannot be claimed by another host.
+- An expired code may be claimed by a new host only in `resetting` state.
+- While resetting, the new host deletes old cards, rounds and participants.
+- The room becomes `open` only after cleanup finishes.
+
+Firestore does not automatically delete subcollections when a parent document is overwritten. The explicit cleanup in `RoomSessionService` is therefore required to prevent data from a previous room leaking into a reused code.
+
+See `docs/rooms.md` for the full collision and browser-restoration flow.
 
 ## Access model
 
-- Authenticated users may fetch a room by an exact code, but cannot list all rooms.
-- Only the host whose `uid` equals `hostId` can create, update or delete their room.
-- A participant may join an open room only under their own `uid`.
-- Hosts can manage participants, rounds and cards in their room.
-- Participants can read only their own participant record and card.
-- Participants can update only their card play-state fields: marked songs, line claim, bingo claim and update timestamp.
+- Authenticated users may fetch a room by exact code but cannot list all rooms.
+- The current host can maintain and close their room without changing its identity or expiry.
+- A different host can claim only an expired room code.
+- A participant may join an open, unexpired room only under their own `uid`.
+- Hosts manage participants, rounds and cards in their room.
+- Participants read only their own participant record and card.
 - Unknown collections and paths are denied by default.
 
 ## Deployment by copy and paste
@@ -98,12 +98,10 @@ The room document ID must equal its public room code. Participant and card docum
 3. Confirm Anonymous Authentication is enabled.
 4. Open **Firestore Database → Rules**.
 5. Replace the editor contents with the complete contents of `firestore.rules`.
-6. Review the active application version and publish the rules.
-7. Test host and participant flows immediately after publishing.
+6. Publish the rules.
+7. Test host creation, collision handling, joining, expiry and expired-code reuse.
 
 ## Deployment with Firebase CLI
-
-A future `firebase.json` may point Firestore at this file. Until then, the file can be deployed explicitly after configuring the Firebase CLI project:
 
 ```bash
 firebase login
@@ -111,25 +109,26 @@ firebase use simple-estatico
 firebase deploy --only firestore:rules
 ```
 
-Before using CLI deployment, verify that the active Firebase project is `simple-estatico` and that the local configuration maps Firestore rules to `firestore.rules`.
+Before CLI deployment, verify that the active project is `simple-estatico` and that the Firebase configuration maps Firestore rules to `firestore.rules`.
 
 ## Production checklist
 
-- Anonymous Authentication is enabled in Firebase Console.
+- Anonymous Authentication is enabled.
 - The app signs in before any Firestore operation.
-- Authentication failures are surfaced and do not silently continue with unauthenticated Firestore requests.
-- Firebase factories and Auth persistence values are imported from `firebase/*`, not from AngularFire wrappers.
-- Room documents store the authenticated host `uid` as `hostId`.
-- Participant and card document IDs match the authenticated participant `uid`.
-- Room, participant, round and card paths match the documented model.
-- Server timestamps are used for audit fields.
-- Room codes are sufficiently resistant to guessing or rate-limited through the application flow.
-- Rules are tested in the Firebase Emulator Suite for host, participant and unauthenticated cases.
+- Firebase factories and persistence values are imported from `firebase/*`.
+- Room IDs contain exactly six digits.
+- `expiresAt` is no more than two hours after creation.
+- Participants cannot join missing, closed, resetting or expired rooms.
+- Expired-room cleanup removes cards, rounds and participants before reopening.
+- Participant and card document IDs match the authenticated `uid`.
+- Rules are tested in the Firebase Emulator Suite, including simultaneous host claims.
 - Test-mode rules are no longer active.
-- No service-account credentials or private keys are included in the client repository.
+- No service-account credentials or private keys are committed.
 
 ## Important limitations
 
-Anonymous authentication identifies a browser installation, not a verified human identity. Clearing browser data can orphan ownership of rooms created with the previous anonymous `uid`. Before supporting long-lived rooms, consider an account-linking or recovery strategy for hosts.
+Anonymous authentication identifies a browser installation, not a verified human. Clearing browser data can orphan ownership of a still-active room.
 
-Firestore rules can authorize access, but they cannot fully prevent automated room-code guessing when clients are allowed to fetch a room by exact code. Before public launch, consider longer invitation codes, expiring rooms, App Check and rate limiting through a trusted backend or Cloud Function.
+Six-digit codes and exact-code reads do not fully prevent automated guessing. Before public launch, consider Firebase App Check, request throttling through a trusted backend and abuse monitoring.
+
+Client-side cleanup is adequate for the current prototype, but a trusted scheduled backend cleanup should eventually remove expired rooms that are never selected for reuse.
