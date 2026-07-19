@@ -1,9 +1,10 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import {
   IonApp,
   IonButton,
   IonContent,
   IonIcon,
+  IonInput,
   IonSelect,
   IonSelectOption,
   IonSpinner,
@@ -12,14 +13,19 @@ import {
 import { addIcons } from 'ionicons';
 import {
   albumsOutline,
+  arrowBackOutline,
   checkmarkCircle,
   checkmarkCircleOutline,
+  enterOutline,
   logInOutline,
   logOutOutline,
   musicalNotes,
+  peopleOutline,
+  personOutline,
   refreshOutline,
   shieldCheckmarkOutline,
 } from 'ionicons/icons';
+import { RoomNotFoundError, RoomSessionService } from './core/firebase/room-session.service';
 
 interface SpotifyImage {
   url: string;
@@ -39,12 +45,8 @@ interface SpotifyTrack {
   type: string;
   is_local?: boolean;
   artists: SpotifyArtist[];
-  album: {
-    images: SpotifyImage[];
-  };
-  external_urls: {
-    spotify: string;
-  };
+  album: { images: SpotifyImage[] };
+  external_urls: { spotify: string };
 }
 
 interface SpotifyPlaylistItem {
@@ -62,19 +64,10 @@ interface SpotifyPlaylist {
   id: string;
   name: string;
   images: SpotifyImage[];
-  owner: {
-    id: string;
-    display_name: string | null;
-  };
-  external_urls: {
-    spotify: string;
-  };
-  items?: {
-    total: number;
-  };
-  tracks?: {
-    total: number;
-  };
+  owner: { id: string; display_name: string | null };
+  external_urls: { spotify: string };
+  items?: { total: number };
+  tracks?: { total: number };
 }
 
 interface SpotifyPlaylistsResponse {
@@ -88,6 +81,8 @@ interface SpotifyTokenResponse {
   refresh_token?: string;
 }
 
+type AppMode = 'choice' | 'host' | 'join' | 'participant';
+
 @Component({
   selector: 'app-root',
   standalone: true,
@@ -96,6 +91,7 @@ interface SpotifyTokenResponse {
     IonContent,
     IonButton,
     IonIcon,
+    IonInput,
     IonSelect,
     IonSelectOption,
     IonSpinner,
@@ -106,6 +102,7 @@ interface SpotifyTokenResponse {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AppComponent implements OnInit {
+  private readonly rooms = inject(RoomSessionService);
   private readonly clientId = 'abd77186596e467eb105868ffaff2b57';
   private readonly scopes = ['playlist-read-private', 'playlist-read-collaborative'];
   private readonly verifierKey = 'spotify_code_verifier';
@@ -113,10 +110,14 @@ export class AppComponent implements OnInit {
   private readonly tokenKey = 'spotify_access_token';
   private readonly tokenExpiryKey = 'spotify_token_expiry';
   private readonly refreshTokenKey = 'spotify_refresh_token';
-  private readonly roomCodeKey = 'bingo_host_room_code';
+  private readonly roomCodeKey = 'bingo_room_code';
+  private readonly roleKey = 'bingo_session_role';
   private readonly bingoSize = 15;
   private refreshPromise: Promise<string> | null = null;
 
+  readonly mode = signal<AppMode>('choice');
+  readonly isRoomLoading = signal(false);
+  readonly joinCode = signal('');
   readonly isLoading = signal(false);
   readonly isGeneratingCard = signal(false);
   readonly isConnected = signal(false);
@@ -136,18 +137,22 @@ export class AppComponent implements OnInit {
   constructor() {
     addIcons({
       albumsOutline,
+      arrowBackOutline,
       checkmarkCircle,
       checkmarkCircleOutline,
-      musicalNotes,
+      enterOutline,
       logInOutline,
       logOutOutline,
+      musicalNotes,
+      peopleOutline,
+      personOutline,
       refreshOutline,
       shieldCheckmarkOutline,
     });
   }
 
   async ngOnInit(): Promise<void> {
-    this.roomCode.set(this.getOrCreateRoomCode());
+    await this.restoreSession();
 
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
@@ -161,11 +166,12 @@ export class AppComponent implements OnInit {
     }
 
     if (code) {
+      this.mode.set('host');
       await this.completeAuthorization(code, returnedState);
       return;
     }
 
-    if (sessionStorage.getItem(this.tokenKey) || localStorage.getItem(this.refreshTokenKey)) {
+    if (this.mode() === 'host' && (sessionStorage.getItem(this.tokenKey) || localStorage.getItem(this.refreshTokenKey))) {
       try {
         await this.getValidAccessToken();
         this.isConnected.set(true);
@@ -179,9 +185,82 @@ export class AppComponent implements OnInit {
     }
   }
 
-  async connectWithSpotify(): Promise<void> {
+  async chooseHost(): Promise<void> {
+    this.isRoomLoading.set(true);
     this.errorMessage.set(null);
 
+    try {
+      const code = await this.rooms.createHostRoom();
+      this.persistSession('host', code);
+      this.roomCode.set(code);
+      this.mode.set('host');
+    } catch (error) {
+      this.errorMessage.set(error instanceof Error ? error.message : 'No se pudo crear la partida.');
+    } finally {
+      this.isRoomLoading.set(false);
+    }
+  }
+
+  showJoin(): void {
+    this.errorMessage.set(null);
+    this.joinCode.set('');
+    this.mode.set('join');
+  }
+
+  updateJoinCode(value: string | null | undefined): void {
+    this.joinCode.set((value ?? '').replace(/\D/g, '').slice(0, 6));
+    this.errorMessage.set(null);
+  }
+
+  async joinSession(): Promise<void> {
+    this.isRoomLoading.set(true);
+    this.errorMessage.set(null);
+
+    try {
+      const code = await this.rooms.joinRoom(this.joinCode());
+      this.persistSession('participant', code);
+      this.roomCode.set(code);
+      this.mode.set('participant');
+    } catch (error) {
+      this.errorMessage.set(
+        error instanceof RoomNotFoundError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : 'No se pudo entrar en la partida.',
+      );
+    } finally {
+      this.isRoomLoading.set(false);
+    }
+  }
+
+  async leaveSession(): Promise<void> {
+    const currentMode = this.mode();
+    const code = this.roomCode();
+
+    try {
+      if (currentMode === 'participant') {
+        await this.rooms.leaveRoom(code);
+      } else if (currentMode === 'host') {
+        await this.rooms.closeHostRoom(code);
+      }
+    } finally {
+      this.clearPersistedSession();
+      this.roomCode.set('');
+      this.joinCode.set('');
+      this.isGameStarted.set(false);
+      this.mode.set('choice');
+      this.errorMessage.set(null);
+    }
+  }
+
+  backToChoice(): void {
+    this.mode.set('choice');
+    this.errorMessage.set(null);
+  }
+
+  async connectWithSpotify(): Promise<void> {
+    this.errorMessage.set(null);
     const verifier = this.generateRandomString(64);
     const challenge = await this.createCodeChallenge(verifier);
     const state = this.generateRandomString(24);
@@ -210,15 +289,24 @@ export class AppComponent implements OnInit {
     this.errorMessage.set(null);
   }
 
-  regenerateRoomCode(): void {
-    const code = this.generateRoomCode();
-    localStorage.setItem(this.roomCodeKey, code);
-    this.roomCode.set(code);
+  async regenerateRoomCode(): Promise<void> {
+    this.isRoomLoading.set(true);
+    this.errorMessage.set(null);
+
+    try {
+      await this.rooms.closeHostRoom(this.roomCode());
+      const code = await this.rooms.createHostRoom();
+      this.persistSession('host', code);
+      this.roomCode.set(code);
+    } catch (error) {
+      this.errorMessage.set(error instanceof Error ? error.message : 'No se pudo generar otro número.');
+    } finally {
+      this.isRoomLoading.set(false);
+    }
   }
 
   async startBingo(): Promise<void> {
     const generated = await this.generateBingoCard();
-
     if (generated) {
       this.portraitNoticeVisible.set(true);
       this.isGameStarted.set(true);
@@ -238,10 +326,7 @@ export class AppComponent implements OnInit {
 
   async generateBingoCard(): Promise<boolean> {
     const playlistId = this.selectedPlaylistId();
-
-    if (!playlistId) {
-      return false;
-    }
+    if (!playlistId) return false;
 
     this.isGeneratingCard.set(true);
     this.errorMessage.set(null);
@@ -255,48 +340,32 @@ export class AppComponent implements OnInit {
 
       while (nextUrl) {
         const response = await this.spotifyFetch(nextUrl);
-
-        if (!response.ok) {
-          throw new Error(`No se pudieron cargar las canciones (${response.status}).`);
-        }
+        if (!response.ok) throw new Error(`No se pudieron cargar las canciones (${response.status}).`);
 
         const page = (await response.json()) as SpotifyPlaylistItemsResponse;
-
         for (const playlistItem of page.items) {
           const track = playlistItem.item ?? playlistItem.track ?? null;
           const isLocal = playlistItem.is_local ?? track?.is_local ?? false;
-
           if (
-            track &&
-            track.type === 'track' &&
-            !isLocal &&
-            track.id &&
-            track.name &&
-            track.artists?.length &&
-            track.album?.images?.length
+            track && track.type === 'track' && !isLocal && track.id && track.name &&
+            track.artists?.length && track.album?.images?.length
           ) {
             tracks.push(track);
           }
         }
-
         nextUrl = page.next;
       }
 
       const uniqueTracks = Array.from(new Map(tracks.map((track) => [track.id, track])).values());
-
       if (uniqueTracks.length < this.bingoSize) {
-        throw new Error(
-          `Esta playlist solo tiene ${uniqueTracks.length} canciones válidas. Necesitas al menos ${this.bingoSize}.`,
-        );
+        throw new Error(`Esta playlist solo tiene ${uniqueTracks.length} canciones válidas. Necesitas al menos ${this.bingoSize}.`);
       }
 
       this.bingoTracks.set(this.shuffle(uniqueTracks).slice(0, this.bingoSize));
       return true;
     } catch (error) {
       this.bingoTracks.set([]);
-      this.errorMessage.set(
-        error instanceof Error ? error.message : 'No se pudo generar el cartón.',
-      );
+      this.errorMessage.set(error instanceof Error ? error.message : 'No se pudo generar el cartón.');
       return false;
     } finally {
       this.isGeneratingCard.set(false);
@@ -305,13 +374,7 @@ export class AppComponent implements OnInit {
 
   toggleTrack(trackId: string): void {
     const nextMarked = new Set(this.markedTrackIds());
-
-    if (nextMarked.has(trackId)) {
-      nextMarked.delete(trackId);
-    } else {
-      nextMarked.add(trackId);
-    }
-
+    nextMarked.has(trackId) ? nextMarked.delete(trackId) : nextMarked.add(trackId);
     this.markedTrackIds.set(nextMarked);
   }
 
@@ -329,11 +392,44 @@ export class AppComponent implements OnInit {
     this.selectedPlaylistId.set(null);
     this.bingoTracks.set([]);
     this.markedTrackIds.set(new Set());
-    if (clearError) {
-      this.errorMessage.set(null);
-    }
+    if (clearError) this.errorMessage.set(null);
     this.isGameStarted.set(false);
     this.isConnected.set(false);
+  }
+
+  private async restoreSession(): Promise<void> {
+    const role = localStorage.getItem(this.roleKey);
+    const code = localStorage.getItem(this.roomCodeKey) ?? '';
+
+    if (role === 'host' && (await this.rooms.resumeHostRoom(code))) {
+      this.roomCode.set(code);
+      this.mode.set('host');
+      return;
+    }
+
+    if (role === 'participant') {
+      try {
+        const joinedCode = await this.rooms.joinRoom(code);
+        this.roomCode.set(joinedCode);
+        this.joinCode.set(joinedCode);
+        this.mode.set('participant');
+        return;
+      } catch {
+        // The room no longer exists or has expired; return to role selection.
+      }
+    }
+
+    this.clearPersistedSession();
+  }
+
+  private persistSession(role: 'host' | 'participant', code: string): void {
+    localStorage.setItem(this.roleKey, role);
+    localStorage.setItem(this.roomCodeKey, code);
+  }
+
+  private clearPersistedSession(): void {
+    localStorage.removeItem(this.roleKey);
+    localStorage.removeItem(this.roomCodeKey);
   }
 
   private async completeAuthorization(code: string, returnedState: string | null): Promise<void> {
@@ -343,14 +439,10 @@ export class AppComponent implements OnInit {
     try {
       const expectedState = sessionStorage.getItem(this.stateKey);
       const verifier = sessionStorage.getItem(this.verifierKey);
-
       if (!returnedState || !expectedState || returnedState !== expectedState) {
         throw new Error('La respuesta de Spotify no supera la validación de seguridad.');
       }
-
-      if (!verifier) {
-        throw new Error('No se encontró el verificador PKCE. Vuelve a iniciar la conexión.');
-      }
+      if (!verifier) throw new Error('No se encontró el verificador PKCE. Vuelve a iniciar la conexión.');
 
       const body = new URLSearchParams({
         client_id: this.clientId,
@@ -359,31 +451,21 @@ export class AppComponent implements OnInit {
         redirect_uri: this.getRedirectUri(),
         code_verifier: verifier,
       });
-
       const response = await fetch('https://accounts.spotify.com/api/token', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
       });
+      if (!response.ok) throw new Error(`Spotify no pudo completar el acceso (${response.status}).`);
 
-      if (!response.ok) {
-        throw new Error(`Spotify no pudo completar el acceso (${response.status}).`);
-      }
-
-      const token = (await response.json()) as SpotifyTokenResponse;
-      this.storeTokenResponse(token);
+      this.storeTokenResponse((await response.json()) as SpotifyTokenResponse);
       sessionStorage.removeItem(this.verifierKey);
       sessionStorage.removeItem(this.stateKey);
-
       this.clearCallbackParameters();
       this.isConnected.set(true);
       await this.loadPlaylists();
     } catch (error) {
-      this.errorMessage.set(
-        error instanceof Error ? error.message : 'No se pudo conectar con Spotify.',
-      );
+      this.errorMessage.set(error instanceof Error ? error.message : 'No se pudo conectar con Spotify.');
       this.clearCallbackParameters();
     } finally {
       this.isLoading.set(false);
@@ -396,10 +478,7 @@ export class AppComponent implements OnInit {
 
     try {
       const profileResponse = await this.spotifyFetch('https://api.spotify.com/v1/me');
-
-      if (!profileResponse.ok) {
-        throw new Error(`No se pudo cargar tu perfil de Spotify (${profileResponse.status}).`);
-      }
+      if (!profileResponse.ok) throw new Error(`No se pudo cargar tu perfil de Spotify (${profileResponse.status}).`);
 
       const profile = (await profileResponse.json()) as SpotifyUserProfile;
       const collected: SpotifyPlaylist[] = [];
@@ -407,27 +486,20 @@ export class AppComponent implements OnInit {
 
       while (nextUrl) {
         const response = await this.spotifyFetch(nextUrl);
-
-        if (!response.ok) {
-          throw new Error(`No se pudieron cargar las playlists (${response.status}).`);
-        }
-
+        if (!response.ok) throw new Error(`No se pudieron cargar las playlists (${response.status}).`);
         const page = (await response.json()) as SpotifyPlaylistsResponse;
         collected.push(...page.items.filter((playlist) => playlist.owner.id === profile.id));
         nextUrl = page.next;
       }
 
       this.playlists.set(collected);
-
       if (collected.length === 1) {
         this.selectPlaylist(collected[0].id);
       } else if (!collected.some((playlist) => playlist.id === this.selectedPlaylistId())) {
         this.selectedPlaylistId.set(null);
       }
     } catch (error) {
-      this.errorMessage.set(
-        error instanceof Error ? error.message : 'No se pudieron cargar tus playlists.',
-      );
+      this.errorMessage.set(error instanceof Error ? error.message : 'No se pudieron cargar tus playlists.');
     } finally {
       this.isLoading.set(false);
     }
@@ -436,17 +508,14 @@ export class AppComponent implements OnInit {
   private async spotifyFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
     let accessToken = await this.getValidAccessToken();
     let response = await fetch(input, this.withSpotifyAuthorization(init, accessToken));
-
     if (response.status === 401) {
       accessToken = await this.refreshAccessToken();
       response = await fetch(input, this.withSpotifyAuthorization(init, accessToken));
     }
-
     if (response.status === 401) {
       this.disconnect(false);
       throw new Error('Spotify ha rechazado la sesión. Conecta tu cuenta de nuevo.');
     }
-
     return response;
   }
 
@@ -459,21 +528,13 @@ export class AppComponent implements OnInit {
   private async getValidAccessToken(): Promise<string> {
     const token = sessionStorage.getItem(this.tokenKey);
     const expiry = Number(sessionStorage.getItem(this.tokenExpiryKey));
-
-    if (token && expiry && Date.now() < expiry) {
-      return token;
-    }
-
+    if (token && expiry && Date.now() < expiry) return token;
     return this.refreshAccessToken();
   }
 
   private async refreshAccessToken(): Promise<string> {
-    if (this.refreshPromise) {
-      return this.refreshPromise;
-    }
-
+    if (this.refreshPromise) return this.refreshPromise;
     this.refreshPromise = this.requestRefreshedAccessToken();
-
     try {
       return await this.refreshPromise;
     } finally {
@@ -483,25 +544,18 @@ export class AppComponent implements OnInit {
 
   private async requestRefreshedAccessToken(): Promise<string> {
     const refreshToken = localStorage.getItem(this.refreshTokenKey);
-
-    if (!refreshToken) {
-      throw new Error('La sesión de Spotify ha caducado. Conecta tu cuenta de nuevo.');
-    }
+    if (!refreshToken) throw new Error('La sesión de Spotify ha caducado. Conecta tu cuenta de nuevo.');
 
     const body = new URLSearchParams({
       client_id: this.clientId,
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
     });
-
     const response = await fetch('https://accounts.spotify.com/api/token', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body,
     });
-
     if (!response.ok) {
       this.disconnect(false);
       throw new Error('Spotify no pudo renovar la sesión. Conecta tu cuenta de nuevo.');
@@ -515,53 +569,24 @@ export class AppComponent implements OnInit {
 
   private storeTokenResponse(token: SpotifyTokenResponse): void {
     sessionStorage.setItem(this.tokenKey, token.access_token);
-    sessionStorage.setItem(
-      this.tokenExpiryKey,
-      String(Date.now() + token.expires_in * 1000 - 60_000),
-    );
-
-    if (token.refresh_token) {
-      localStorage.setItem(this.refreshTokenKey, token.refresh_token);
-    }
-  }
-
-  private getOrCreateRoomCode(): string {
-    const storedCode = localStorage.getItem(this.roomCodeKey);
-
-    if (storedCode && /^\d{4}$/.test(storedCode)) {
-      return storedCode;
-    }
-
-    const code = this.generateRoomCode();
-    localStorage.setItem(this.roomCodeKey, code);
-    return code;
-  }
-
-  private generateRoomCode(): string {
-    const values = crypto.getRandomValues(new Uint32Array(1));
-    return String(1000 + (values[0] % 9000));
+    sessionStorage.setItem(this.tokenExpiryKey, String(Date.now() + token.expires_in * 1000 - 60_000));
+    if (token.refresh_token) localStorage.setItem(this.refreshTokenKey, token.refresh_token);
   }
 
   private shuffle<T>(items: T[]): T[] {
     const shuffled = [...items];
-
     for (let index = shuffled.length - 1; index > 0; index -= 1) {
       const randomIndex = Math.floor(Math.random() * (index + 1));
       [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
     }
-
     return shuffled;
   }
 
   private getRedirectUri(): string {
-    const isLocalhost =
-      window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-
-    if (isLocalhost) {
-      return `http://127.0.0.1:${window.location.port || '8100'}/`;
-    }
-
-    return 'https://zwymobile.com/bingo_musical/';
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    return isLocalhost
+      ? `http://127.0.0.1:${window.location.port || '8100'}/`
+      : 'https://zwymobile.com/bingo_musical/';
   }
 
   private clearCallbackParameters(): void {
@@ -575,11 +600,7 @@ export class AppComponent implements OnInit {
   }
 
   private async createCodeChallenge(verifier: string): Promise<string> {
-    const digest = await crypto.subtle.digest(
-      'SHA-256',
-      new TextEncoder().encode(verifier),
-    );
-
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
     return btoa(String.fromCharCode(...new Uint8Array(digest)))
       .replace(/=/g, '')
       .replace(/\+/g, '-')
