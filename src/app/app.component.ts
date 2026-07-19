@@ -112,8 +112,10 @@ export class AppComponent implements OnInit {
   private readonly stateKey = 'spotify_auth_state';
   private readonly tokenKey = 'spotify_access_token';
   private readonly tokenExpiryKey = 'spotify_token_expiry';
+  private readonly refreshTokenKey = 'spotify_refresh_token';
   private readonly roomCodeKey = 'bingo_host_room_code';
   private readonly bingoSize = 15;
+  private refreshPromise: Promise<string> | null = null;
 
   readonly isLoading = signal(false);
   readonly isGeneratingCard = signal(false);
@@ -163,9 +165,17 @@ export class AppComponent implements OnInit {
       return;
     }
 
-    if (this.hasValidAccessToken()) {
-      this.isConnected.set(true);
-      await this.loadPlaylists();
+    if (sessionStorage.getItem(this.tokenKey) || localStorage.getItem(this.refreshTokenKey)) {
+      try {
+        await this.getValidAccessToken();
+        this.isConnected.set(true);
+        await this.loadPlaylists();
+      } catch (error) {
+        this.disconnect(false);
+        this.errorMessage.set(
+          error instanceof Error ? error.message : 'No se pudo recuperar la sesión de Spotify.',
+        );
+      }
     }
   }
 
@@ -228,9 +238,8 @@ export class AppComponent implements OnInit {
 
   async generateBingoCard(): Promise<boolean> {
     const playlistId = this.selectedPlaylistId();
-    const accessToken = sessionStorage.getItem(this.tokenKey);
 
-    if (!playlistId || !accessToken) {
+    if (!playlistId) {
       return false;
     }
 
@@ -245,16 +254,7 @@ export class AppComponent implements OnInit {
         '?limit=50&additional_types=track';
 
       while (nextUrl) {
-        const response = await fetch(nextUrl, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
-
-        if (response.status === 401) {
-          this.disconnect();
-          throw new Error('La sesión de Spotify ha caducado. Conecta tu cuenta de nuevo.');
-        }
+        const response = await this.spotifyFetch(nextUrl);
 
         if (!response.ok) {
           throw new Error(`No se pudieron cargar las canciones (${response.status}).`);
@@ -319,16 +319,19 @@ export class AppComponent implements OnInit {
     return this.markedTrackIds().has(trackId);
   }
 
-  disconnect(): void {
+  disconnect(clearError = true): void {
     sessionStorage.removeItem(this.tokenKey);
     sessionStorage.removeItem(this.tokenExpiryKey);
+    localStorage.removeItem(this.refreshTokenKey);
     sessionStorage.removeItem(this.verifierKey);
     sessionStorage.removeItem(this.stateKey);
     this.playlists.set([]);
     this.selectedPlaylistId.set(null);
     this.bingoTracks.set([]);
     this.markedTrackIds.set(new Set());
-    this.errorMessage.set(null);
+    if (clearError) {
+      this.errorMessage.set(null);
+    }
     this.isGameStarted.set(false);
     this.isConnected.set(false);
   }
@@ -370,11 +373,7 @@ export class AppComponent implements OnInit {
       }
 
       const token = (await response.json()) as SpotifyTokenResponse;
-      sessionStorage.setItem(this.tokenKey, token.access_token);
-      sessionStorage.setItem(
-        this.tokenExpiryKey,
-        String(Date.now() + token.expires_in * 1000 - 30_000),
-      );
+      this.storeTokenResponse(token);
       sessionStorage.removeItem(this.verifierKey);
       sessionStorage.removeItem(this.stateKey);
 
@@ -392,27 +391,11 @@ export class AppComponent implements OnInit {
   }
 
   private async loadPlaylists(): Promise<void> {
-    const accessToken = sessionStorage.getItem(this.tokenKey);
-
-    if (!accessToken) {
-      this.isConnected.set(false);
-      return;
-    }
-
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
     try {
-      const profileResponse = await fetch('https://api.spotify.com/v1/me', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-
-      if (profileResponse.status === 401) {
-        this.disconnect();
-        throw new Error('La sesión de Spotify ha caducado. Conecta tu cuenta de nuevo.');
-      }
+      const profileResponse = await this.spotifyFetch('https://api.spotify.com/v1/me');
 
       if (!profileResponse.ok) {
         throw new Error(`No se pudo cargar tu perfil de Spotify (${profileResponse.status}).`);
@@ -423,16 +406,7 @@ export class AppComponent implements OnInit {
       let nextUrl: string | null = 'https://api.spotify.com/v1/me/playlists?limit=50';
 
       while (nextUrl) {
-        const response = await fetch(nextUrl, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
-
-        if (response.status === 401) {
-          this.disconnect();
-          throw new Error('La sesión de Spotify ha caducado. Conecta tu cuenta de nuevo.');
-        }
+        const response = await this.spotifyFetch(nextUrl);
 
         if (!response.ok) {
           throw new Error(`No se pudieron cargar las playlists (${response.status}).`);
@@ -456,6 +430,98 @@ export class AppComponent implements OnInit {
       );
     } finally {
       this.isLoading.set(false);
+    }
+  }
+
+  private async spotifyFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+    let accessToken = await this.getValidAccessToken();
+    let response = await fetch(input, this.withSpotifyAuthorization(init, accessToken));
+
+    if (response.status === 401) {
+      accessToken = await this.refreshAccessToken();
+      response = await fetch(input, this.withSpotifyAuthorization(init, accessToken));
+    }
+
+    if (response.status === 401) {
+      this.disconnect(false);
+      throw new Error('Spotify ha rechazado la sesión. Conecta tu cuenta de nuevo.');
+    }
+
+    return response;
+  }
+
+  private withSpotifyAuthorization(init: RequestInit, accessToken: string): RequestInit {
+    const headers = new Headers(init.headers);
+    headers.set('Authorization', `Bearer ${accessToken}`);
+    return { ...init, headers };
+  }
+
+  private async getValidAccessToken(): Promise<string> {
+    const token = sessionStorage.getItem(this.tokenKey);
+    const expiry = Number(sessionStorage.getItem(this.tokenExpiryKey));
+
+    if (token && expiry && Date.now() < expiry) {
+      return token;
+    }
+
+    return this.refreshAccessToken();
+  }
+
+  private async refreshAccessToken(): Promise<string> {
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.refreshPromise = this.requestRefreshedAccessToken();
+
+    try {
+      return await this.refreshPromise;
+    } finally {
+      this.refreshPromise = null;
+    }
+  }
+
+  private async requestRefreshedAccessToken(): Promise<string> {
+    const refreshToken = localStorage.getItem(this.refreshTokenKey);
+
+    if (!refreshToken) {
+      throw new Error('La sesión de Spotify ha caducado. Conecta tu cuenta de nuevo.');
+    }
+
+    const body = new URLSearchParams({
+      client_id: this.clientId,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    });
+
+    const response = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    });
+
+    if (!response.ok) {
+      this.disconnect(false);
+      throw new Error('Spotify no pudo renovar la sesión. Conecta tu cuenta de nuevo.');
+    }
+
+    const token = (await response.json()) as SpotifyTokenResponse;
+    this.storeTokenResponse(token);
+    this.isConnected.set(true);
+    return token.access_token;
+  }
+
+  private storeTokenResponse(token: SpotifyTokenResponse): void {
+    sessionStorage.setItem(this.tokenKey, token.access_token);
+    sessionStorage.setItem(
+      this.tokenExpiryKey,
+      String(Date.now() + token.expires_in * 1000 - 60_000),
+    );
+
+    if (token.refresh_token) {
+      localStorage.setItem(this.refreshTokenKey, token.refresh_token);
     }
   }
 
@@ -485,12 +551,6 @@ export class AppComponent implements OnInit {
     }
 
     return shuffled;
-  }
-
-  private hasValidAccessToken(): boolean {
-    const token = sessionStorage.getItem(this.tokenKey);
-    const expiry = Number(sessionStorage.getItem(this.tokenExpiryKey));
-    return Boolean(token && expiry && Date.now() < expiry);
   }
 
   private getRedirectUri(): string {
