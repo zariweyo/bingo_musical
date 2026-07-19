@@ -1,11 +1,11 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { Auth } from '@angular/fire/auth';
 import {
-  Auth,
   User,
   browserLocalPersistence,
   setPersistence,
   signInAnonymously,
-} from '@angular/fire/auth';
+} from 'firebase/auth';
 
 @Injectable({ providedIn: 'root' })
 export class AnonymousAuthService {
