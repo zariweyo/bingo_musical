@@ -46,7 +46,18 @@ Preparing a music bingo manually requires choosing songs, creating different car
 - `Invitar participantes` displays the persistent room number and explains that real joining is still simulated.
 - `Terminar partida` asks for confirmation and returns to preparation while preserving the room number and selected playlist.
 - Starting another bingo generates a new host card for a new round without requiring participants to enter a new room number.
-- Real room membership, player cards, QR links and multiplayer synchronization are still mocked and will be connected later.
+- Firebase and Cloud Firestore are initialized in the Angular application through AngularFire.
+- Firebase access is centralized behind a Firestore service; current room and round state has not yet been migrated from browser storage.
+- Real room membership, player cards, QR links and multiplayer synchronization are still mocked and will be connected to Firestore in later changes.
+
+## Firebase and Firestore
+
+- Firebase project: `simple-estatico`.
+- The browser application uses the public Firebase web configuration stored in `src/environments/firebase.config.ts`.
+- Cloud Firestore is registered during Angular bootstrap.
+- Application code should access Firestore through services under `src/app/core/firebase/`, not directly from UI components.
+- Firestore security rules are currently in test mode and allow writes. This is temporary for development only and must be replaced with restrictive production rules before public multiplayer data is enabled.
+- No Firebase service-account credentials, admin SDK keys or other private secrets may be committed to the repository.
 
 ## Room and round model
 
@@ -67,12 +78,15 @@ Preparing a music bingo manually requires choosing songs, creating different car
 - Song review and exclusions.
 - Deterministic unique card generation.
 - Local in-memory or browser-storage game prototype.
+- Firebase and Cloud Firestore application foundation.
 - Host and player UI prototypes.
 - GitHub Pages deployment.
 
 ### Excluded for now
 
-- Firebase authentication, Firestore and Cloud Functions.
+- Firebase Authentication and Cloud Functions.
+- Production Firestore security rules and authorization model.
+- Persisted multiplayer room synchronization.
 - Payments and prizes.
 - Audio streaming or playback inside the application.
 - Native Android and iOS packages.
@@ -89,6 +103,7 @@ Preparing a music bingo manually requires choosing songs, creating different car
 - During a game, the card should occupy the screen and non-game controls should be kept to a minimum.
 - The app must never imply that it owns or redistributes Spotify audio.
 - Failures must be recoverable without losing the selected playlist or stable room number.
+- Public client configuration may be committed, but private credentials and unrestricted production data access are forbidden.
 
 ## First milestones
 
@@ -97,5 +112,6 @@ Preparing a music bingo manually requires choosing songs, creating different car
 3. Spotify developer app and PKCE login.
 4. Real playlist import with pagination.
 5. Persistent local host room and fullscreen host card.
-6. Local participant joining and multi-round card simulation.
-7. Firebase design and activation.
+6. Firebase and Firestore application foundation.
+7. Persisted rooms, participants and multi-round cards.
+8. Production authentication and Firestore security rules.
