@@ -12,10 +12,11 @@ Focus only on:
 2. Mobile-first UI and navigation.
 3. Spotify authentication using Authorization Code with PKCE.
 4. Importing playlist metadata and tracks.
-5. Local mock state for games and cards.
-6. GitHub Pages compatibility.
+5. Firebase and Cloud Firestore foundations.
+6. Migrating local room, participant and card state to Firestore incrementally.
+7. GitHub Pages compatibility.
 
-Do not activate Firebase yet. Firebase-related code may exist only as clearly marked comments or documentation. Do not add Firebase packages until requested.
+Firebase and Firestore are active. Firebase Authentication and Cloud Functions are not yet in scope unless explicitly requested.
 
 ## Technical rules
 
@@ -23,8 +24,10 @@ Do not activate Firebase yet. Firebase-related code may exist only as clearly ma
 - Use strict TypeScript; avoid `any`.
 - Use Ionic components when they improve mobile behavior or accessibility.
 - Keep components small and feature-oriented.
-- Put external API access behind services.
-- Never commit secrets, access tokens or Spotify client secrets.
+- Put external API and Firestore access behind services.
+- UI components must not access Firestore directly.
+- Never commit secrets, access tokens, Spotify client secrets, Firebase service-account files or Admin SDK credentials.
+- Firebase browser configuration is public client configuration and may be committed.
 - Browser authorization must use PKCE.
 - Keep the app compatible with the GitHub Pages base path `/bingo_musical/`.
 - Use English for identifiers, filenames and code comments.
@@ -42,6 +45,7 @@ Do not activate Firebase yet. Firebase-related code may exist only as clearly ma
 src/app/
   core/
     auth/
+    firebase/
     spotify/
   features/
     home/
@@ -55,6 +59,15 @@ src/app/
 ```
 
 Create folders only when they contain real code; do not generate empty architecture.
+
+## Firebase constraints
+
+- Use the modular Firebase SDK through AngularFire providers.
+- Keep Firebase browser configuration in `src/environments/firebase.config.ts`.
+- Centralize Firestore operations under `src/app/core/firebase/`.
+- Firestore rules are currently in test mode and permit writes only as a temporary development measure.
+- Before public multiplayer is enabled, replace test-mode rules with restrictive rules backed by an explicit authentication and authorization model.
+- Do not add Firebase Authentication, Cloud Functions, Storage or Analytics behavior until requested or required by an implemented feature.
 
 ## Spotify constraints
 
