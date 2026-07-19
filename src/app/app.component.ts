@@ -112,16 +112,20 @@ export class AppComponent implements OnInit {
   private readonly stateKey = 'spotify_auth_state';
   private readonly tokenKey = 'spotify_access_token';
   private readonly tokenExpiryKey = 'spotify_token_expiry';
+  private readonly roomCodeKey = 'bingo_host_room_code';
   private readonly bingoSize = 15;
 
   readonly isLoading = signal(false);
   readonly isGeneratingCard = signal(false);
   readonly isConnected = signal(false);
+  readonly isGameStarted = signal(false);
+  readonly portraitNoticeVisible = signal(true);
   readonly playlists = signal<SpotifyPlaylist[]>([]);
   readonly selectedPlaylistId = signal<string | null>(null);
   readonly selectedPlaylist = computed(() =>
     this.playlists().find((playlist) => playlist.id === this.selectedPlaylistId()) ?? null,
   );
+  readonly roomCode = signal('');
   readonly bingoTracks = signal<SpotifyTrack[]>([]);
   readonly markedTrackIds = signal<Set<string>>(new Set());
   readonly markedCount = computed(() => this.markedTrackIds().size);
@@ -141,6 +145,8 @@ export class AppComponent implements OnInit {
   }
 
   async ngOnInit(): Promise<void> {
+    this.roomCode.set(this.getOrCreateRoomCode());
+
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     const returnedState = params.get('state');
@@ -187,23 +193,45 @@ export class AppComponent implements OnInit {
     window.location.assign(`https://accounts.spotify.com/authorize?${params.toString()}`);
   }
 
-  async selectPlaylist(playlistId: string | null): Promise<void> {
+  selectPlaylist(playlistId: string | null): void {
     this.selectedPlaylistId.set(playlistId);
     this.bingoTracks.set([]);
     this.markedTrackIds.set(new Set());
     this.errorMessage.set(null);
+  }
 
-    if (playlistId) {
-      await this.generateBingoCard();
+  regenerateRoomCode(): void {
+    const code = this.generateRoomCode();
+    localStorage.setItem(this.roomCodeKey, code);
+    this.roomCode.set(code);
+  }
+
+  async startBingo(): Promise<void> {
+    const generated = await this.generateBingoCard();
+
+    if (generated) {
+      this.portraitNoticeVisible.set(true);
+      this.isGameStarted.set(true);
     }
   }
 
-  async generateBingoCard(): Promise<void> {
+  endGame(): void {
+    this.isGameStarted.set(false);
+    this.bingoTracks.set([]);
+    this.markedTrackIds.set(new Set());
+    this.portraitNoticeVisible.set(true);
+  }
+
+  dismissPortraitNotice(): void {
+    this.portraitNoticeVisible.set(false);
+  }
+
+  async generateBingoCard(): Promise<boolean> {
     const playlistId = this.selectedPlaylistId();
     const accessToken = sessionStorage.getItem(this.tokenKey);
 
     if (!playlistId || !accessToken) {
-      return;
+      return false;
     }
 
     this.isGeneratingCard.set(true);
@@ -263,11 +291,13 @@ export class AppComponent implements OnInit {
       }
 
       this.bingoTracks.set(this.shuffle(uniqueTracks).slice(0, this.bingoSize));
+      return true;
     } catch (error) {
       this.bingoTracks.set([]);
       this.errorMessage.set(
         error instanceof Error ? error.message : 'No se pudo generar el cartón.',
       );
+      return false;
     } finally {
       this.isGeneratingCard.set(false);
     }
@@ -299,6 +329,7 @@ export class AppComponent implements OnInit {
     this.bingoTracks.set([]);
     this.markedTrackIds.set(new Set());
     this.errorMessage.set(null);
+    this.isGameStarted.set(false);
     this.isConnected.set(false);
   }
 
@@ -415,7 +446,7 @@ export class AppComponent implements OnInit {
       this.playlists.set(collected);
 
       if (collected.length === 1) {
-        await this.selectPlaylist(collected[0].id);
+        this.selectPlaylist(collected[0].id);
       } else if (!collected.some((playlist) => playlist.id === this.selectedPlaylistId())) {
         this.selectedPlaylistId.set(null);
       }
@@ -426,6 +457,23 @@ export class AppComponent implements OnInit {
     } finally {
       this.isLoading.set(false);
     }
+  }
+
+  private getOrCreateRoomCode(): string {
+    const storedCode = localStorage.getItem(this.roomCodeKey);
+
+    if (storedCode && /^\d{4}$/.test(storedCode)) {
+      return storedCode;
+    }
+
+    const code = this.generateRoomCode();
+    localStorage.setItem(this.roomCodeKey, code);
+    return code;
+  }
+
+  private generateRoomCode(): string {
+    const values = crypto.getRandomValues(new Uint32Array(1));
+    return String(1000 + (values[0] % 9000));
   }
 
   private shuffle<T>(items: T[]): T[] {
