@@ -1,6 +1,6 @@
 <ion-app>
   <ion-content [fullscreen]="true">
-    <main class="landing" [class.has-card]="bingoTracks().length > 0">
+    <main class="landing" [class.game-active]="isGameStarted()">
       @if (!isConnected()) {
         <section class="hero">
           <div class="brand-mark" aria-hidden="true">
@@ -11,16 +11,11 @@
             <p class="eyebrow">Bingo Musical</p>
             <h1>Crea tu partida con Spotify</h1>
             <p class="subtitle">
-              Conecta tu cuenta, elige una de tus playlists y genera cartones musicales únicos para todos los jugadores.
+              Conecta tu cuenta, elige una de tus playlists y prepara una sala para tus participantes.
             </p>
           </ion-text>
 
-          <ion-button
-            shape="round"
-            size="large"
-            [disabled]="isLoading()"
-            (click)="connectWithSpotify()"
-          >
+          <ion-button shape="round" size="large" [disabled]="isLoading()" (click)="connectWithSpotify()">
             @if (isLoading()) {
               <ion-spinner slot="start" name="crescent"></ion-spinner>
             } @else {
@@ -38,41 +33,28 @@
             <p class="error-message">{{ errorMessage() }}</p>
           }
         </section>
-      } @else if (bingoTracks().length > 0) {
-        <section
-          class="host-card-view"
-          style="width: 100%; min-height: 100dvh; display: grid; grid-template-rows: auto 1fr; gap: 12px; padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));"
-        >
-          <header
-            class="host-card-actions"
-            style="display: flex; align-items: center; justify-content: space-between; gap: 12px;"
-          >
-            <ion-button
-              fill="clear"
-              aria-label="Cancelar la partida"
-              style="--background: rgb(127 29 29 / 0.25); --color: #fecaca; margin: 0;"
-              (click)="cancelDialog.showModal()"
-            >
-              Cerrar
+      } @else if (isGameStarted()) {
+        <section class="host-game-view">
+          <header class="host-game-header">
+            <ion-button fill="clear" size="small" class="header-action danger" (click)="endDialog.showModal()">
+              Terminar partida
             </ion-button>
 
-            <div style="min-width: 0; text-align: center;">
-              <p class="bingo-kicker" style="margin: 0;">Cartón del anfitrión</p>
-              <strong style="display: block; overflow: hidden; color: #fff; text-overflow: ellipsis; white-space: nowrap;">
-                {{ selectedPlaylist()?.name }}
-              </strong>
-            </div>
+            <span class="header-room-code" aria-label="Número de partida">{{ roomCode() }}</span>
 
-            <ion-button
-              aria-label="Compartir código de partida"
-              style="margin: 0;"
-              (click)="shareDialog.showModal()"
-            >
-              Compartir
+            <ion-button fill="clear" size="small" class="header-action" (click)="inviteDialog.showModal()">
+              Invitar participantes
             </ion-button>
           </header>
 
-          <section class="bingo-section" style="min-height: 0; margin: 0; display: grid; align-content: center;">
+          @if (portraitNoticeVisible()) {
+            <aside class="portrait-notice" role="status">
+              <p>El cartón se ve mejor en horizontal. Gira el móvil para disfrutarlo completo.</p>
+              <button type="button" aria-label="Cerrar aviso" (click)="dismissPortraitNotice()">×</button>
+            </aside>
+          }
+
+          <section class="game-card-area">
             <div class="bingo-card" role="grid" aria-label="Cartón de bingo musical">
               @for (track of bingoTracks(); track track.id) {
                 <button
@@ -82,10 +64,7 @@
                   [attr.aria-pressed]="isTrackMarked(track.id)"
                   (click)="toggleTrack(track.id)"
                 >
-                  <img
-                    [src]="track.album.images[0].url"
-                    [alt]="'Portada de ' + track.name"
-                  />
+                  <img [src]="track.album.images[0].url" [alt]="'Portada de ' + track.name" />
                   <span class="track-overlay">
                     <strong>{{ track.name }}</strong>
                     <small>{{ track.artists[0]?.name ?? 'Artista desconocido' }}</small>
@@ -98,41 +77,21 @@
             </div>
           </section>
 
-          <dialog
-            #shareDialog
-            aria-labelledby="share-title"
-            style="width: min(92vw, 420px); padding: 26px; border: 1px solid rgb(148 163 184 / 0.25); border-radius: 22px; color: #fff; background: #111827; box-shadow: 0 30px 90px rgb(0 0 0 / 0.55); text-align: center;"
-          >
-            <p class="eyebrow" style="margin-bottom: 8px;">Modo demo</p>
-            <h2 id="share-title" style="margin: 0 0 12px;">Comparte esta partida</h2>
-            <p style="margin: 0; color: #cbd5e1; line-height: 1.5;">
-              Los jugadores deberán introducir este código para unirse.
-            </p>
-            <strong
-              style="display: block; margin: 22px 0; color: #86efac; font-size: clamp(2.8rem, 14vw, 4.5rem); letter-spacing: 0.16em;"
-            >
-              4827
-            </strong>
-            <ion-button expand="block" (click)="shareDialog.close()">Entendido</ion-button>
+          <dialog #inviteDialog class="app-dialog" aria-labelledby="invite-title">
+            <p class="eyebrow">Sala del anfitrión</p>
+            <h2 id="invite-title">Invita a los participantes</h2>
+            <p>Comparte este número. Se mantendrá para las siguientes rondas y cartones.</p>
+            <strong class="dialog-code">{{ roomCode() }}</strong>
+            <p class="demo-note">La unión real de participantes todavía está simulada.</p>
+            <ion-button expand="block" (click)="inviteDialog.close()">Cerrar</ion-button>
           </dialog>
 
-          <dialog
-            #cancelDialog
-            aria-labelledby="cancel-title"
-            style="width: min(92vw, 420px); padding: 26px; border: 1px solid rgb(248 113 113 / 0.28); border-radius: 22px; color: #fff; background: #111827; box-shadow: 0 30px 90px rgb(0 0 0 / 0.55); text-align: center;"
-          >
-            <h2 id="cancel-title" style="margin: 0 0 12px;">¿Cancelar la partida?</h2>
-            <p style="margin: 0 0 22px; color: #cbd5e1; line-height: 1.5;">
-              Se cerrará el cartón actual y volverás a la selección de playlist.
-            </p>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-              <ion-button fill="outline" (click)="cancelDialog.close()">Continuar jugando</ion-button>
-              <ion-button
-                style="--background: #b91c1c; --background-hover: #dc2626; --color: #fff;"
-                (click)="bingoTracks.set([]); cancelDialog.close()"
-              >
-                Cancelar partida
-              </ion-button>
+          <dialog #endDialog class="app-dialog danger-dialog" aria-labelledby="end-title">
+            <h2 id="end-title">¿Terminar la partida?</h2>
+            <p>Volverás a la preparación para poder iniciar otra ronda con el mismo número de sala.</p>
+            <div class="dialog-actions">
+              <ion-button fill="outline" (click)="endDialog.close()">Seguir jugando</ion-button>
+              <ion-button class="danger-button" (click)="endGame(); endDialog.close()">Terminar partida</ion-button>
             </div>
           </dialog>
         </section>
@@ -140,9 +99,9 @@
         <section class="playlists-view">
           <header class="playlists-header">
             <div>
-              <p class="eyebrow">Spotify conectado</p>
-              <h1>Bingo Musical</h1>
-              <p class="subtitle">Elige una lista para preparar el cartón del anfitrión.</p>
+              <p class="eyebrow">Modo anfitrión</p>
+              <h1>Prepara tu bingo</h1>
+              <p class="subtitle">Elige la playlist, comparte el número de sala y comienza cuando todos estén dentro.</p>
             </div>
 
             <ion-button fill="clear" class="disconnect-button" (click)="disconnect()">
@@ -167,8 +126,20 @@
               <p>Crea una lista en Spotify y vuelve a conectar.</p>
             </div>
           } @else {
-            <section class="game-controls">
-              <div class="playlist-control">
+            <section class="host-setup">
+              <div class="room-panel">
+                <div>
+                  <span class="setup-label">Número de partida</span>
+                  <strong class="room-code">{{ roomCode() }}</strong>
+                  <p>Los participantes podrán conservar esta sala aunque repartas nuevos cartones.</p>
+                </div>
+                <ion-button fill="outline" size="small" (click)="regenerateRoomCode()">
+                  <ion-icon slot="start" name="refresh-outline"></ion-icon>
+                  Nuevo número
+                </ion-button>
+              </div>
+
+              <div class="playlist-panel">
                 <label class="selector-label" for="playlist-select">Playlist para la partida</label>
                 <ion-select
                   id="playlist-select"
@@ -184,41 +155,38 @@
                     </ion-select-option>
                   }
                 </ion-select>
-              </div>
 
-              @if (selectedPlaylist(); as playlist) {
-                <div class="playlist-summary">
-                  @if (playlist.images[0]?.url) {
-                    <img [src]="playlist.images[0].url" [alt]="'Portada de ' + playlist.name" />
-                  }
-                  <div>
-                    <span>Lista seleccionada</span>
-                    <strong>{{ playlist.name }}</strong>
+                @if (selectedPlaylist(); as playlist) {
+                  <div class="playlist-summary">
+                    @if (playlist.images[0]?.url) {
+                      <img [src]="playlist.images[0].url" [alt]="'Portada de ' + playlist.name" />
+                    }
+                    <div>
+                      <span>Lista seleccionada</span>
+                      <strong>{{ playlist.name }}</strong>
+                    </div>
                   </div>
-                </div>
-
-                <ion-button
-                  class="regenerate-button"
-                  fill="outline"
-                  [disabled]="isGeneratingCard()"
-                  (click)="generateBingoCard()"
-                >
-                  @if (isGeneratingCard()) {
-                    <ion-spinner slot="start" name="crescent"></ion-spinner>
-                  } @else {
-                    <ion-icon slot="start" name="refresh-outline"></ion-icon>
-                  }
-                  Crear cartón
-                </ion-button>
-              }
-            </section>
-
-            @if (isGeneratingCard()) {
-              <div class="loading-state card-loading">
-                <ion-spinner name="crescent"></ion-spinner>
-                <p>Eligiendo 15 canciones al azar...</p>
+                }
               </div>
-            }
+
+              <ion-button
+                class="start-bingo-button"
+                size="large"
+                [disabled]="!selectedPlaylistId() || isGeneratingCard()"
+                (click)="startBingo()"
+              >
+                @if (isGeneratingCard()) {
+                  <ion-spinner slot="start" name="crescent"></ion-spinner>
+                  Preparando cartón...
+                } @else {
+                  Iniciar bingo
+                }
+              </ion-button>
+
+              <p class="participants-note">
+                Los participantes se unirán con este número. En esta fase la conexión entre dispositivos sigue siendo una simulación local.
+              </p>
+            </section>
           }
         </section>
       }
