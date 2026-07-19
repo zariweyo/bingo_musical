@@ -12,33 +12,49 @@ Preparing a music bingo manually requires choosing songs, creating different car
 2. Connects Spotify.
 3. Pastes or selects a playlist.
 4. Reviews the imported songs.
-5. Chooses card size and winning patterns.
-6. Creates a private room.
-7. Opens the host card in a fullscreen, distraction-free game view.
-8. Shares a code or QR link.
-9. Records the songs that have played.
+5. Creates or reuses a private room number.
+6. Shares that number so participants can join once.
+7. Presses `Iniciar bingo` to generate a new host card and begin a round.
+8. Uses the fullscreen landscape game view to record the songs that have played.
+9. Invites more participants with the same room number when needed.
 10. Reviews and validates line or bingo claims.
-11. Can cancel the current game and return to playlist selection.
+11. Ends the current round and returns to preparation without changing the room number.
+12. Can start another round and distribute new cards while existing participants remain associated with the same room.
 
 ### Player
 
-1. Opens the invitation link.
-2. Enters a display name.
+1. Opens the invitation link or join screen.
+2. Enters the host room number and a display name.
 3. Receives a unique card.
 4. Marks songs as they play.
 5. Claims line or bingo.
+6. Can receive a new card for a later round without entering the room number again.
 
 ## Current implemented prototype
 
 - Spotify sign-in uses Authorization Code with PKCE.
 - Logging out clears the local application session, and a new connection forces Spotify to show its authorization dialog so another account can be selected.
 - The host selects one of their own Spotify playlists.
-- Selecting a playlist generates a 15-song card.
-- Once generated, the host card opens in a fullscreen game view.
-- The fullscreen header only exposes the host actions `Cerrar` and `Compartir`.
-- `Cerrar` asks for confirmation, cancels the current local game and returns to playlist selection.
-- `Compartir` opens a demo dialog with the temporary room code `4827`.
-- Room creation, real codes, QR links and multiplayer synchronization are still mocked and will be connected later.
+- The preparation screen shows a four-digit room number before the card is generated.
+- The room number is stored in browser storage and remains stable for that host across rounds and Spotify disconnections.
+- The host can explicitly regenerate the room number from the preparation screen.
+- Selecting a playlist no longer starts the game automatically.
+- `Iniciar bingo` generates a random 15-song host card and opens the game view.
+- The game view is optimized for landscape orientation.
+- In portrait orientation, a dismissible notice recommends rotating the phone; it is informational and does not block play.
+- The game header is intentionally minimal and only exposes `Terminar partida`, the room number and `Invitar participantes`.
+- `Invitar participantes` displays the persistent room number and explains that real joining is still simulated.
+- `Terminar partida` asks for confirmation and returns to preparation while preserving the room number and selected playlist.
+- Starting another bingo generates a new host card for a new round without requiring participants to enter a new room number.
+- Real room membership, player cards, QR links and multiplayer synchronization are still mocked and will be connected later.
+
+## Room and round model
+
+- A **room** belongs to the host and is identified by a stable four-digit number.
+- A **round** is one bingo session and can generate a new set of cards.
+- Ending a round does not end or replace the room.
+- Regenerating the room number is an explicit host action available only before a round starts.
+- The stable room model allows the host to distribute new cards without forcing participants to join again.
 
 ## Initial scope
 
@@ -67,10 +83,12 @@ Preparing a music bingo manually requires choosing songs, creating different car
 
 - A host should understand how to start a game without instructions.
 - Players should join without creating an account.
-- The card must remain legible on a small phone.
+- Participants should not need to re-enter a room number for each new round.
+- The card must remain legible on a small phone and should use landscape orientation during play.
+- Portrait orientation must remain usable and should show guidance rather than blocking the user.
 - During a game, the card should occupy the screen and non-game controls should be kept to a minimum.
 - The app must never imply that it owns or redistributes Spotify audio.
-- Failures must be recoverable without losing the selected playlist.
+- Failures must be recoverable without losing the selected playlist or stable room number.
 
 ## First milestones
 
@@ -78,6 +96,6 @@ Preparing a music bingo manually requires choosing songs, creating different car
 2. Visual home and playlist-import flow using mocks.
 3. Spotify developer app and PKCE login.
 4. Real playlist import with pagination.
-5. Card generator and fullscreen host preview.
-6. Local room-code and multiplayer simulation.
+5. Persistent local host room and fullscreen host card.
+6. Local participant joining and multi-round card simulation.
 7. Firebase design and activation.
