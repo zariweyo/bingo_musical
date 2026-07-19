@@ -38,13 +38,111 @@
             <p class="error-message">{{ errorMessage() }}</p>
           }
         </section>
+      } @else if (bingoTracks().length > 0) {
+        <section
+          class="host-card-view"
+          style="width: 100%; min-height: 100dvh; display: grid; grid-template-rows: auto 1fr; gap: 12px; padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));"
+        >
+          <header
+            class="host-card-actions"
+            style="display: flex; align-items: center; justify-content: space-between; gap: 12px;"
+          >
+            <ion-button
+              fill="clear"
+              aria-label="Cancelar la partida"
+              style="--background: rgb(127 29 29 / 0.25); --color: #fecaca; margin: 0;"
+              (click)="cancelDialog.showModal()"
+            >
+              Cerrar
+            </ion-button>
+
+            <div style="min-width: 0; text-align: center;">
+              <p class="bingo-kicker" style="margin: 0;">Cartón del anfitrión</p>
+              <strong style="display: block; overflow: hidden; color: #fff; text-overflow: ellipsis; white-space: nowrap;">
+                {{ selectedPlaylist()?.name }}
+              </strong>
+            </div>
+
+            <ion-button
+              aria-label="Compartir código de partida"
+              style="margin: 0;"
+              (click)="shareDialog.showModal()"
+            >
+              Compartir
+            </ion-button>
+          </header>
+
+          <section class="bingo-section" style="min-height: 0; margin: 0; display: grid; align-content: center;">
+            <div class="bingo-card" role="grid" aria-label="Cartón de bingo musical">
+              @for (track of bingoTracks(); track track.id) {
+                <button
+                  type="button"
+                  class="bingo-cell"
+                  [class.marked]="isTrackMarked(track.id)"
+                  [attr.aria-pressed]="isTrackMarked(track.id)"
+                  (click)="toggleTrack(track.id)"
+                >
+                  <img
+                    [src]="track.album.images[0].url"
+                    [alt]="'Portada de ' + track.name"
+                  />
+                  <span class="track-overlay">
+                    <strong>{{ track.name }}</strong>
+                    <small>{{ track.artists[0]?.name ?? 'Artista desconocido' }}</small>
+                  </span>
+                  <span class="mark-badge" aria-hidden="true">
+                    <ion-icon name="checkmark-circle"></ion-icon>
+                  </span>
+                </button>
+              }
+            </div>
+          </section>
+
+          <dialog
+            #shareDialog
+            aria-labelledby="share-title"
+            style="width: min(92vw, 420px); padding: 26px; border: 1px solid rgb(148 163 184 / 0.25); border-radius: 22px; color: #fff; background: #111827; box-shadow: 0 30px 90px rgb(0 0 0 / 0.55); text-align: center;"
+          >
+            <p class="eyebrow" style="margin-bottom: 8px;">Modo demo</p>
+            <h2 id="share-title" style="margin: 0 0 12px;">Comparte esta partida</h2>
+            <p style="margin: 0; color: #cbd5e1; line-height: 1.5;">
+              Los jugadores deberán introducir este código para unirse.
+            </p>
+            <strong
+              style="display: block; margin: 22px 0; color: #86efac; font-size: clamp(2.8rem, 14vw, 4.5rem); letter-spacing: 0.16em;"
+            >
+              4827
+            </strong>
+            <ion-button expand="block" (click)="shareDialog.close()">Entendido</ion-button>
+          </dialog>
+
+          <dialog
+            #cancelDialog
+            aria-labelledby="cancel-title"
+            style="width: min(92vw, 420px); padding: 26px; border: 1px solid rgb(248 113 113 / 0.28); border-radius: 22px; color: #fff; background: #111827; box-shadow: 0 30px 90px rgb(0 0 0 / 0.55); text-align: center;"
+          >
+            <h2 id="cancel-title" style="margin: 0 0 12px;">¿Cancelar la partida?</h2>
+            <p style="margin: 0 0 22px; color: #cbd5e1; line-height: 1.5;">
+              Se cerrará el cartón actual y volverás a la selección de playlist.
+            </p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <ion-button fill="outline" (click)="cancelDialog.close()">Continuar jugando</ion-button>
+              <ion-button
+                style="--background: #b91c1c; --background-hover: #dc2626; --color: #fff;"
+                (click)="bingoTracks.set([]); cancelDialog.close()"
+              >
+                Cancelar partida
+              </ion-button>
+            </div>
+          </dialog>
+        </section>
       } @else {
         <section class="playlists-view">
           <header class="playlists-header">
             <div>
               <p class="eyebrow">Spotify conectado</p>
               <h1>Bingo Musical</h1>
-              <p class="subtitle">Elige una lista y marca las canciones conforme vayan sonando.</p>
+              <p class="subtitle">Elige una lista para preparar el cartón del anfitrión.</p>
             </div>
 
             <ion-button fill="clear" class="disconnect-button" (click)="disconnect()">
@@ -110,7 +208,7 @@
                   } @else {
                     <ion-icon slot="start" name="refresh-outline"></ion-icon>
                   }
-                  Nuevo cartón
+                  Crear cartón
                 </ion-button>
               }
             </section>
@@ -120,40 +218,6 @@
                 <ion-spinner name="crescent"></ion-spinner>
                 <p>Eligiendo 15 canciones al azar...</p>
               </div>
-            } @else if (bingoTracks().length > 0) {
-              <section class="bingo-section">
-                <div class="bingo-toolbar">
-                  <div>
-                    <p class="bingo-kicker">Tu cartón</p>
-                    <h2>15 canciones · {{ markedCount() }} marcadas</h2>
-                  </div>
-                  <p class="landscape-hint">Gira el móvil para jugar en horizontal</p>
-                </div>
-
-                <div class="bingo-card" role="grid" aria-label="Cartón de bingo musical">
-                  @for (track of bingoTracks(); track track.id) {
-                    <button
-                      type="button"
-                      class="bingo-cell"
-                      [class.marked]="isTrackMarked(track.id)"
-                      [attr.aria-pressed]="isTrackMarked(track.id)"
-                      (click)="toggleTrack(track.id)"
-                    >
-                      <img
-                        [src]="track.album.images[0].url"
-                        [alt]="'Portada de ' + track.name"
-                      />
-                      <span class="track-overlay">
-                        <strong>{{ track.name }}</strong>
-                        <small>{{ track.artists[0]?.name ?? 'Artista desconocido' }}</small>
-                      </span>
-                      <span class="mark-badge" aria-hidden="true">
-                        <ion-icon name="checkmark-circle"></ion-icon>
-                      </span>
-                    </button>
-                  }
-                </div>
-              </section>
             }
           }
         </section>
