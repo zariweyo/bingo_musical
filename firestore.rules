@@ -1,0 +1,123 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function roomPath(roomId) {
+      return /databases/$(database)/documents/rooms/$(roomId);
+    }
+
+    function participantPath(roomId, userId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/participants/$(userId);
+    }
+
+    function roomExists(roomId) {
+      return exists(roomPath(roomId));
+    }
+
+    function roomData(roomId) {
+      return get(roomPath(roomId)).data;
+    }
+
+    function isHost(roomId) {
+      return isSignedIn() && roomExists(roomId) && roomData(roomId).hostId == request.auth.uid;
+    }
+
+    function isParticipant(roomId) {
+      return isSignedIn() && exists(participantPath(roomId, request.auth.uid));
+    }
+
+    function isRoomMember(roomId) {
+      return isHost(roomId) || isParticipant(roomId);
+    }
+
+    function roomIsJoinable(roomId) {
+      return roomExists(roomId) && roomData(roomId).status == 'open';
+    }
+
+    match /rooms/{roomId} {
+      // Authenticated users may fetch a room by its exact code to join it,
+      // but listing or searching all rooms is forbidden.
+      allow get: if isSignedIn();
+      allow list: if false;
+
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly([
+          'hostId',
+          'code',
+          'status',
+          'createdAt',
+          'updatedAt',
+          'currentRoundId',
+          'playlistId',
+          'playlistName'
+        ])
+        && request.resource.data.hostId == request.auth.uid
+        && request.resource.data.code == roomId
+        && request.resource.data.status == 'open';
+
+      allow update: if isHost(roomId)
+        && request.resource.data.hostId == resource.data.hostId
+        && request.resource.data.code == resource.data.code;
+
+      allow delete: if isHost(roomId);
+
+      match /participants/{participantId} {
+        allow read: if isHost(roomId) || isOwner(participantId);
+
+        // A signed-in user may join an open room only as themselves.
+        allow create: if isOwner(participantId)
+          && roomIsJoinable(roomId)
+          && request.resource.data.keys().hasOnly([
+            'userId',
+            'displayName',
+            'joinedAt',
+            'updatedAt',
+            'active'
+          ])
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.active == true;
+
+        // Participants may update their own profile. The host may only
+        // deactivate or maintain participant records, never change identity.
+        allow update: if (isOwner(participantId) || isHost(roomId))
+          && request.resource.data.userId == resource.data.userId;
+
+        allow delete: if isOwner(participantId) || isHost(roomId);
+      }
+
+      match /rounds/{roundId} {
+        allow read: if isRoomMember(roomId);
+        allow create, update, delete: if isHost(roomId);
+
+        match /cards/{cardId} {
+          allow read: if isHost(roomId) || isOwner(cardId);
+          allow create, delete: if isHost(roomId);
+
+          // A participant may only change play-state fields on their own card.
+          // Card ownership, songs and round identity remain host-controlled.
+          allow update: if isHost(roomId)
+            || (isOwner(cardId)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'markedTrackIds',
+                'lineClaimedAt',
+                'bingoClaimedAt',
+                'updatedAt'
+              ]));
+        }
+      }
+    }
+
+    // Deny every collection that is not explicitly covered above.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
