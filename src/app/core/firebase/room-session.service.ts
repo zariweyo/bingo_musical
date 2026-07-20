@@ -80,7 +80,7 @@ export class RoomSessionService {
   async closeHostRoom(code:string):Promise<void>{const ref=doc(this.firestore,`rooms/${code}`);const snap=await getDoc(ref);if(snap.exists()&&snap.data()['hostId']===this.requireUid())await updateDoc(ref,{status:'closed',currentRoundId:null,updatedAt:Timestamp.now(),expiresAt:Timestamp.now()});}
 
   private participant(uid:string,displayName:string,role:SessionRole):ParticipantDocument{const now=Timestamp.now();return{userId:uid,displayName:displayName.trim().slice(0,40),role,active:true,joinedAt:now,updatedAt:now};}
-  private requireUid():string{const uid=this.auth.currentUser()?.uid;if(!uid)throw new Error('No se pudo identificar al usuario.');return uid;}
+  private requireUid():string{const uid=this.auth.uid();if(!uid)throw new Error('No se pudo identificar al usuario.');return uid;}
   private shuffle<T>(items:T[]):T[]{const copy=[...items];for(let i=copy.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[copy[i],copy[j]]=[copy[j],copy[i]];}return copy;}
   private async clearRoomContents(code:string):Promise<void>{const rounds=await getDocs(collection(this.firestore,`rooms/${code}/rounds`));for(const round of rounds.docs){for(const name of ['songs','cards','playedSongs']){const docs=await getDocs(collection(this.firestore,`${round.ref.path}/${name}`));for(const item of docs.docs)await deleteDoc(item.ref);}await deleteDoc(round.ref);}const participants=await getDocs(collection(this.firestore,`rooms/${code}/participants`));for(const item of participants.docs)await deleteDoc(item.ref);}
 }
