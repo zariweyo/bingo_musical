@@ -1,197 +1,140 @@
 <ion-app>
   <ion-content [fullscreen]="true">
     <main class="landing" [class.game-active]="isGameStarted()">
-      @if (mode() === 'choice') {
+      @if (mode() === 'name') {
+        <section class="hero join-view">
+          <div class="brand-mark compact" aria-hidden="true"><ion-icon name="person-outline"></ion-icon></div>
+          <ion-text>
+            <p class="eyebrow">Bingo Musical</p>
+            <h1>¿Cómo te llamas?</h1>
+            <p class="subtitle">Este nombre se mostrará al anfitrión y a los demás participantes de la sala.</p>
+          </ion-text>
+          <div class="join-form">
+            <ion-input label="Tu nombre" labelPlacement="stacked" maxlength="40" placeholder="Nombre" [value]="displayName()" (ionInput)="updateDisplayName($event.detail.value)"></ion-input>
+            <ion-button expand="block" size="large" [disabled]="displayName().trim().length < 2 || isRoomLoading()" (click)="confirmName()">
+              @if (isRoomLoading()) { <ion-spinner slot="start" name="crescent"></ion-spinner> }
+              Continuar
+            </ion-button>
+          </div>
+          @if (errorMessage()) { <p class="error-message">{{ errorMessage() }}</p> }
+        </section>
+      } @else if (mode() === 'choice') {
         <section class="hero role-choice">
           <div class="brand-mark" aria-hidden="true"><ion-icon name="musical-notes"></ion-icon></div>
           <ion-text>
-            <p class="eyebrow">Bingo Musical</p>
+            <p class="eyebrow">Hola, {{ displayName() }}</p>
             <h1>¿Cómo quieres entrar?</h1>
             <p class="subtitle">Crea una partida como anfitrión o únete con el número de seis cifras.</p>
           </ion-text>
-
           <div class="role-actions">
             <button type="button" class="role-card" [disabled]="isRoomLoading()" (click)="chooseHost()">
-              <ion-icon name="person-outline"></ion-icon>
-              <strong>Ser anfitrión</strong>
-              <span>Crea una sala durante 2 horas y prepara el bingo con Spotify.</span>
+              <ion-icon name="person-outline"></ion-icon><strong>Ser anfitrión</strong><span>Crea la sala, elige las canciones y juega también con tu propio cartón.</span>
             </button>
             <button type="button" class="role-card" [disabled]="isRoomLoading()" (click)="showJoin()">
-              <ion-icon name="people-outline"></ion-icon>
-              <strong>Unirme a una partida</strong>
-              <span>Introduce el número que te ha compartido el anfitrión.</span>
+              <ion-icon name="people-outline"></ion-icon><strong>Unirme a una partida</strong><span>Introduce el número compartido por el anfitrión.</span>
             </button>
           </div>
-
-          @if (isRoomLoading()) {
-            <div class="inline-loading"><ion-spinner name="crescent"></ion-spinner><span>Reservando sala...</span></div>
-          }
+          @if (isRoomLoading()) { <div class="inline-loading"><ion-spinner name="crescent"></ion-spinner><span>Preparando sala...</span></div> }
           @if (errorMessage()) { <p class="error-message">{{ errorMessage() }}</p> }
         </section>
       } @else if (mode() === 'join') {
         <section class="hero join-view">
-          <button type="button" class="back-link" (click)="backToChoice()">
-            <ion-icon name="arrow-back-outline"></ion-icon> Volver
-          </button>
+          <button type="button" class="back-link" (click)="backToChoice()"><ion-icon name="arrow-back-outline"></ion-icon> Volver</button>
           <div class="brand-mark compact" aria-hidden="true"><ion-icon name="enter-outline"></ion-icon></div>
-          <ion-text>
-            <p class="eyebrow">Participante</p>
-            <h1>Únete a la partida</h1>
-            <p class="subtitle">Escribe el número de seis cifras. No necesitas conectar Spotify.</p>
-          </ion-text>
-
+          <ion-text><p class="eyebrow">{{ displayName() }}</p><h1>Únete a la partida</h1><p class="subtitle">Escribe el número de seis cifras. Puedes entrar aunque la ronda ya haya empezado.</p></ion-text>
           <div class="join-form">
-            <ion-input
-              label="Número de partida"
-              labelPlacement="stacked"
-              inputmode="numeric"
-              maxlength="6"
-              placeholder="000000"
-              [value]="joinCode()"
-              (ionInput)="updateJoinCode($event.detail.value)"
-            ></ion-input>
+            <ion-input label="Número de partida" labelPlacement="stacked" inputmode="numeric" maxlength="6" placeholder="000000" [value]="joinCode()" (ionInput)="updateJoinCode($event.detail.value)"></ion-input>
             <ion-button expand="block" size="large" [disabled]="joinCode().length !== 6 || isRoomLoading()" (click)="joinSession()">
-              @if (isRoomLoading()) { <ion-spinner slot="start" name="crescent"></ion-spinner> }
-              Unirme
+              @if (isRoomLoading()) { <ion-spinner slot="start" name="crescent"></ion-spinner> } Unirme
             </ion-button>
           </div>
           @if (errorMessage()) { <p class="error-message">{{ errorMessage() }}</p> }
         </section>
-      } @else if (mode() === 'participant') {
-        <section class="hero participant-view">
-          <div class="brand-mark" aria-hidden="true"><ion-icon name="checkmark-circle"></ion-icon></div>
-          <ion-text>
-            <p class="eyebrow">Participante conectado</p>
-            <h1>Ya estás dentro</h1>
-            <p class="subtitle">Espera a que el anfitrión inicie la ronda. Tu número de partida es:</p>
-          </ion-text>
-          <strong class="participant-room-code">{{ roomCode() }}</strong>
-          <div class="privacy-note">
-            <ion-icon name="shield-checkmark-outline"></ion-icon>
-            <p>La sala caduca automáticamente dos horas después de su creación.</p>
-          </div>
-          <ion-button fill="outline" (click)="leaveSession()">Salir de la partida</ion-button>
-        </section>
-      } @else if (!isConnected()) {
+      } @else if (mode() === 'host' && !isConnected()) {
         <section class="hero">
-          <button type="button" class="back-link" (click)="leaveSession()">
-            <ion-icon name="arrow-back-outline"></ion-icon> Cambiar rol
-          </button>
+          <button type="button" class="back-link" (click)="closeDialog.showModal()"><ion-icon name="arrow-back-outline"></ion-icon> Cerrar sala</button>
           <div class="brand-mark" aria-hidden="true"><ion-icon name="musical-notes"></ion-icon></div>
-          <ion-text>
-            <p class="eyebrow">Sala {{ roomCode() }}</p>
-            <h1>Conecta Spotify</h1>
-            <p class="subtitle">La sala ya está creada. Conecta tu cuenta para elegir la playlist y preparar la partida.</p>
-          </ion-text>
+          <ion-text><p class="eyebrow">Sala {{ roomCode() }}</p><h1>Conecta Spotify</h1><p class="subtitle">La sala ya está creada y tú ya figuras como participante. Conecta Spotify para iniciar la ronda.</p></ion-text>
           <ion-button shape="round" size="large" [disabled]="isLoading()" (click)="connectWithSpotify()">
-            @if (isLoading()) { <ion-spinner slot="start" name="crescent"></ion-spinner> }
-            @else { <ion-icon slot="start" name="log-in-outline"></ion-icon> }
-            Conectar con Spotify
+            @if (isLoading()) { <ion-spinner slot="start" name="crescent"></ion-spinner> } @else { <ion-icon slot="start" name="log-in-outline"></ion-icon> } Conectar con Spotify
           </ion-button>
-          <div class="privacy-note">
-            <ion-icon name="shield-checkmark-outline" aria-hidden="true"></ion-icon>
-            <p>Solo solicitaremos permiso para consultar tus playlists. No publicaremos ni modificaremos nada.</p>
-          </div>
           @if (errorMessage()) { <p class="error-message">{{ errorMessage() }}</p> }
+          <dialog #closeDialog class="app-dialog danger-dialog"><h2>¿Cerrar la sala?</h2><p>Todos los participantes perderán el acceso a esta sala.</p><div class="dialog-actions"><ion-button fill="outline" (click)="closeDialog.close()">Cancelar</ion-button><ion-button class="danger-button" (click)="closeHostSession(); closeDialog.close()">Cerrar sala</ion-button></div></dialog>
         </section>
       } @else if (isGameStarted()) {
         <section class="host-game-view">
           <header class="host-game-header">
-            <ion-button fill="clear" size="small" class="header-action danger" (click)="endDialog.showModal()">Terminar partida</ion-button>
-            <span class="header-room-code" aria-label="Número de partida">{{ roomCode() }}</span>
-            <ion-button fill="clear" size="small" class="header-action" (click)="inviteDialog.showModal()">Invitar participantes</ion-button>
+            @if (mode() === 'host') {
+              <ion-button fill="clear" size="small" class="header-action danger" (click)="endDialog.showModal()">Terminar ronda</ion-button>
+            } @else {
+              <ion-button fill="clear" size="small" class="header-action danger" (click)="leaveDialog.showModal()">Salir</ion-button>
+            }
+            <span class="header-room-code" aria-label="Número de partida">Sala {{ roomCode() }}</span>
+            @if (mode() === 'host') {
+              <ion-button fill="clear" size="small" class="header-action" (click)="participantsDialog.showModal()">Participantes ({{ participants().length }})</ion-button>
+            } @else { <span></span> }
           </header>
 
           @if (portraitNoticeVisible()) {
-            <aside class="portrait-notice" role="status">
-              <p>El cartón se ve mejor en horizontal. Gira el móvil para disfrutarlo completo.</p>
-              <button type="button" aria-label="Cerrar aviso" (click)="dismissPortraitNotice()">×</button>
-            </aside>
+            <aside class="portrait-notice" role="status"><p>El cartón se ve mejor en horizontal.</p><button type="button" aria-label="Cerrar aviso" (click)="dismissPortraitNotice()">×</button></aside>
           }
 
-          <section class="game-card-area">
-            <div class="bingo-card" role="grid" aria-label="Cartón de bingo musical">
-              @for (track of bingoTracks(); track track.id) {
-                <button type="button" class="bingo-cell" [class.marked]="isTrackMarked(track.id)" [attr.aria-pressed]="isTrackMarked(track.id)" (click)="toggleTrack(track.id)">
-                  <img [src]="track.album.images[0].url" [alt]="'Portada de ' + track.name" />
-                  <span class="track-overlay"><strong>{{ track.name }}</strong><small>{{ track.artists[0]?.name ?? 'Artista desconocido' }}</small></span>
-                  <span class="mark-badge" aria-hidden="true"><ion-icon name="checkmark-circle"></ion-icon></span>
-                </button>
+          @if (card() && bingoTracks().length === 15) {
+            <section class="game-card-area">
+              <div class="bingo-card" role="grid" aria-label="Cartón de bingo musical">
+                @for (track of bingoTracks(); track track.spotifyId) {
+                  <button type="button" class="bingo-cell" [class.marked]="isTrackMarked(track.spotifyId)" [attr.aria-pressed]="isTrackMarked(track.spotifyId)" (click)="toggleTrack(track.spotifyId)">
+                    <img [src]="track.imageUrl" [alt]="'Portada de ' + track.name" />
+                    <span class="track-overlay"><strong>{{ track.name }}</strong><small>{{ track.artist }}</small></span>
+                    <span class="mark-badge" aria-hidden="true"><ion-icon name="checkmark-circle"></ion-icon></span>
+                  </button>
+                }
+              </div>
+            </section>
+          } @else {
+            <div class="loading-state"><ion-spinner name="crescent"></ion-spinner><p>Generando tu cartón...</p></div>
+          }
+
+          <dialog #participantsDialog class="app-dialog participants-dialog">
+            <p class="eyebrow">Sala {{ roomCode() }}</p><h2>Participantes</h2>
+            <div class="participant-list">
+              @for (participant of participants(); track participant.userId) {
+                <div class="participant-row"><span>{{ participant.displayName }}</span><small>{{ participant.role === 'host' ? 'Anfitrión' : 'Participante' }} · {{ participant.active ? 'Conectado' : 'Fuera' }}</small></div>
               }
             </div>
-          </section>
-
-          <dialog #inviteDialog class="app-dialog" aria-labelledby="invite-title">
-            <p class="eyebrow">Sala del anfitrión</p>
-            <h2 id="invite-title">Invita a los participantes</h2>
-            <p>Comparte este número de seis cifras. La sala estará disponible durante dos horas desde su creación.</p>
-            <strong class="dialog-code">{{ roomCode() }}</strong>
-            <ion-button expand="block" (click)="inviteDialog.close()">Cerrar</ion-button>
+            <ion-button expand="block" (click)="participantsDialog.close()">Cerrar</ion-button>
           </dialog>
 
-          <dialog #endDialog class="app-dialog danger-dialog" aria-labelledby="end-title">
-            <h2 id="end-title">¿Terminar la partida?</h2>
-            <p>Volverás a la preparación para poder iniciar otra ronda con el mismo número mientras la sala siga vigente.</p>
-            <div class="dialog-actions">
-              <ion-button fill="outline" (click)="endDialog.close()">Seguir jugando</ion-button>
-              <ion-button class="danger-button" (click)="endGame(); endDialog.close()">Terminar partida</ion-button>
-            </div>
-          </dialog>
+          <dialog #endDialog class="app-dialog danger-dialog"><h2>¿Terminar la ronda?</h2><p>Las canciones y los cartones quedarán cerrados. Para jugar otra vez tendrás que iniciar una ronda nueva desde cero.</p><div class="dialog-actions"><ion-button fill="outline" (click)="endDialog.close()">Seguir jugando</ion-button><ion-button class="danger-button" (click)="endGame(); endDialog.close()">Terminar ronda</ion-button></div></dialog>
+          <dialog #leaveDialog class="app-dialog danger-dialog"><h2>¿Salir de la partida?</h2><p>Volverás al inicio. Si entras de nuevo con el mismo navegador recuperarás tu cartón de esta ronda.</p><div class="dialog-actions"><ion-button fill="outline" (click)="leaveDialog.close()">Cancelar</ion-button><ion-button class="danger-button" (click)="leaveSession(); leaveDialog.close()">Salir</ion-button></div></dialog>
+        </section>
+      } @else if (mode() === 'participant') {
+        <section class="participant-waiting">
+          <header class="host-game-header"><ion-button fill="clear" size="small" class="header-action danger" (click)="leaveDialog.showModal()">Salir</ion-button><span class="header-room-code">Sala {{ roomCode() }}</span><span></span></header>
+          <div class="hero participant-view"><div class="brand-mark"><ion-icon name="people-outline"></ion-icon></div><ion-text><p class="eyebrow">{{ displayName() }}</p><h1>Esperando la siguiente ronda</h1><p class="subtitle">Cuando el anfitrión la inicie, tu cartón se generará automáticamente.</p></ion-text></div>
+          <dialog #leaveDialog class="app-dialog danger-dialog"><h2>¿Salir de la partida?</h2><p>Volverás al inicio.</p><div class="dialog-actions"><ion-button fill="outline" (click)="leaveDialog.close()">Cancelar</ion-button><ion-button class="danger-button" (click)="leaveSession(); leaveDialog.close()">Salir</ion-button></div></dialog>
         </section>
       } @else {
         <section class="playlists-view">
           <header class="playlists-header">
-            <div>
-              <p class="eyebrow">Modo anfitrión · Sala {{ roomCode() }}</p>
-              <h1>Prepara tu bingo</h1>
-              <p class="subtitle">Elige la playlist, comparte el número y comienza cuando todos estén dentro.</p>
-            </div>
-            <ion-button fill="clear" class="disconnect-button" (click)="disconnect()">
-              <ion-icon slot="start" name="log-out-outline"></ion-icon>Desconectar Spotify
-            </ion-button>
+            <div><p class="eyebrow">Anfitrión · {{ displayName() }} · Sala {{ roomCode() }}</p><h1>Prepara tu bingo</h1><p class="subtitle">Las canciones quedarán congeladas al iniciar la ronda.</p></div>
+            <ion-button fill="clear" class="disconnect-button" (click)="disconnect()"><ion-icon slot="start" name="log-out-outline"></ion-icon>Desconectar Spotify</ion-button>
           </header>
-
           @if (errorMessage()) { <p class="error-message page-error">{{ errorMessage() }}</p> }
-          @if (isLoading()) {
-            <div class="loading-state"><ion-spinner name="crescent"></ion-spinner><p>Cargando tus playlists...</p></div>
-          } @else if (playlists().length === 0) {
-            <div class="empty-state"><ion-icon name="albums-outline"></ion-icon><h2>No tienes playlists creadas</h2><p>Crea una lista en Spotify y vuelve a conectar.</p></div>
-          } @else {
+          @if (isLoading()) { <div class="loading-state"><ion-spinner name="crescent"></ion-spinner><p>Cargando tus playlists...</p></div> }
+          @else if (playlists().length === 0) { <div class="empty-state"><ion-icon name="albums-outline"></ion-icon><h2>No tienes playlists creadas</h2></div> }
+          @else {
             <section class="host-setup">
-              <div class="room-panel">
-                <div>
-                  <span class="setup-label">Número de partida · válido durante 2 horas</span>
-                  <strong class="room-code">{{ roomCode() }}</strong>
-                  <p>Los participantes pueden entrar usando únicamente este número.</p>
-                </div>
-                <ion-button fill="outline" size="small" [disabled]="isRoomLoading()" (click)="regenerateRoomCode()">
-                  <ion-icon slot="start" name="refresh-outline"></ion-icon>Nuevo número
-                </ion-button>
-              </div>
-
-              <div class="playlist-panel">
-                <label class="selector-label" for="playlist-select">Playlist para la partida</label>
-                <ion-select id="playlist-select" interface="action-sheet" placeholder="Selecciona una playlist" [value]="selectedPlaylistId()" [disabled]="isGeneratingCard()" (ionChange)="selectPlaylist($event.detail.value)">
-                  @for (playlist of playlists(); track playlist.id) {
-                    <ion-select-option [value]="playlist.id">{{ playlist.name }} · {{ playlist.items?.total ?? playlist.tracks?.total ?? 0 }} canciones</ion-select-option>
-                  }
-                </ion-select>
-                @if (selectedPlaylist(); as playlist) {
-                  <div class="playlist-summary">
-                    @if (playlist.images[0]?.url) { <img [src]="playlist.images[0].url" [alt]="'Portada de ' + playlist.name" /> }
-                    <div><span>Lista seleccionada</span><strong>{{ playlist.name }}</strong></div>
-                  </div>
-                }
-              </div>
-
-              <ion-button class="start-bingo-button" size="large" [disabled]="!selectedPlaylistId() || isGeneratingCard()" (click)="startBingo()">
-                @if (isGeneratingCard()) { <ion-spinner slot="start" name="crescent"></ion-spinner>Preparando cartón... }
-                @else { Iniciar bingo }
-              </ion-button>
-              <p class="participants-note">La entrada de participantes ya usa Firestore. La sincronización de cartones y rondas se añadirá en el siguiente paso.</p>
-              <ion-button fill="clear" class="leave-role-button" (click)="leaveSession()">Cerrar sala y cambiar rol</ion-button>
+              <div class="room-panel"><div><span class="setup-label">Número de partida</span><strong class="room-code">{{ roomCode() }}</strong><p>{{ participants().length }} participantes registrados, incluido el anfitrión.</p></div><ion-button fill="outline" size="small" [disabled]="isRoomLoading()" (click)="renewDialog.showModal()"><ion-icon slot="start" name="refresh-outline"></ion-icon>Nuevo número</ion-button></div>
+              <div class="playlist-panel"><label class="selector-label" for="playlist-select">Playlist para la ronda</label><ion-select id="playlist-select" interface="action-sheet" placeholder="Selecciona una playlist" [value]="selectedPlaylistId()" [disabled]="isGeneratingCard()" (ionChange)="selectPlaylist($event.detail.value)">@for (playlist of playlists(); track playlist.id) { <ion-select-option [value]="playlist.id">{{ playlist.name }} · {{ playlist.items?.total ?? playlist.tracks?.total ?? 0 }} canciones</ion-select-option> }</ion-select>@if (selectedPlaylist(); as playlist) { <div class="playlist-summary">@if (playlist.images[0]?.url) { <img [src]="playlist.images[0].url" [alt]="'Portada de ' + playlist.name" /> }<div><span>Lista seleccionada</span><strong>{{ playlist.name }}</strong></div></div> }</div>
+              <div class="host-actions-row"><ion-button fill="outline" (click)="participantsDialog.showModal()"><ion-icon slot="start" name="people-outline"></ion-icon>Ver participantes</ion-button><ion-button class="start-bingo-button" size="large" [disabled]="!selectedPlaylistId() || isGeneratingCard()" (click)="startBingo()">@if (isGeneratingCard()) { <ion-spinner slot="start" name="crescent"></ion-spinner>Guardando canciones... } @else { Iniciar bingo }</ion-button></div>
+              <ion-button fill="clear" class="leave-role-button" (click)="closeDialog.showModal()">Cerrar sala y volver al inicio</ion-button>
             </section>
           }
+
+          <dialog #renewDialog class="app-dialog danger-dialog"><h2>¿Cambiar el número de sala?</h2><p>Tus participantes tendrán que salir y unirse de nuevo con el nuevo número.</p><div class="dialog-actions"><ion-button fill="outline" (click)="renewDialog.close()">Cancelar</ion-button><ion-button class="danger-button" (click)="regenerateRoomCode(); renewDialog.close()">Cambiar número</ion-button></div></dialog>
+          <dialog #closeDialog class="app-dialog danger-dialog"><h2>¿Cerrar la sala?</h2><p>Todos los participantes perderán el acceso.</p><div class="dialog-actions"><ion-button fill="outline" (click)="closeDialog.close()">Cancelar</ion-button><ion-button class="danger-button" (click)="closeHostSession(); closeDialog.close()">Cerrar sala</ion-button></div></dialog>
+          <dialog #participantsDialog class="app-dialog participants-dialog"><p class="eyebrow">Sala {{ roomCode() }}</p><h2>Participantes</h2><div class="participant-list">@for (participant of participants(); track participant.userId) { <div class="participant-row"><span>{{ participant.displayName }}</span><small>{{ participant.role === 'host' ? 'Anfitrión' : 'Participante' }} · {{ participant.active ? 'Conectado' : 'Fuera' }}</small></div> }</div><ion-button expand="block" (click)="participantsDialog.close()">Cerrar</ion-button></dialog>
         </section>
       }
     </main>
