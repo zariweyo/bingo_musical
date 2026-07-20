@@ -1,137 +1,81 @@
 # Product definition
 
 ## Problem
-
 Preparing a music bingo manually requires choosing songs, creating cards, distributing them and checking winners. The product turns a Spotify playlist into a private multiplayer game with minimal preparation.
 
-## Entry and identity
-
-1. Every browser receives a persistent anonymous Firebase `uid`.
-2. Before choosing a role, the user enters a display name.
-3. The name is stored in `users/{uid}`.
-4. When the user enters a room, the name is copied to `rooms/{roomCode}/participants/{uid}`.
-5. The host is also a participant and receives a card through the same mechanism.
+## Identity and room flow
+Every browser receives an anonymous Firebase `uid`. The user chooses a display name, which is stored in `users/{uid}` and copied into the room participant document. The host is also a participant and receives a normal card.
 
 ## Host journey
-
-1. Chooses `Ser anfitrión`.
-2. The application reserves a random six-digit room code in Firestore.
-3. A participant document is created for the host with `role: "host"`.
-4. Connects Spotify and selects a playlist.
-5. Shares the room code and can see the participant list in real time.
-6. Presses `Iniciar bingo`.
-7. The application creates a new round and copies the complete valid song list into its `songs` subcollection.
-8. The song list becomes immutable while the round is active.
-9. The host automatically creates and stores their own card, exactly like every other participant.
-10. Ending the round returns to preparation. Another round always starts from zero with a new `roundId`, songs and cards.
+1. Create a six-digit room and share it.
+2. Connect Spotify and choose a playlist.
+3. Start a round. The valid songs are copied to Firestore and frozen for that round.
+4. If Spotify reports a Premium account and playback is available, use the integrated controls: random start, play/pause, previous, next and ±15 seconds.
+5. If integrated playback is unavailable, play the playlist in the official Spotify app and select the song that has just played in Bingo Musical.
+6. In both modes, register each played song in the round history.
+7. End the round and return to preparation without changing the room code.
 
 ## Participant journey
+Participants may join before or after the round starts. Each browser creates its own 15-song card transactionally, restores it after reload and persists its marks.
 
-1. Chooses `Unirme a una partida` and enters the six-digit code.
-2. Can join before or after the round starts.
-3. Watches the room and active round through Firestore snapshots.
-4. When an active round and its songs are available, checks for `cards/{uid}`.
-5. If the card does not exist, generates a random 15-song card locally and creates it transactionally.
-6. If the card already exists, loads it unchanged.
-7. Marks are persisted in Firestore and survive browser reloads.
-8. Leaving the room asks for confirmation, marks the participant inactive and returns to the home screen.
+## Playback modes
+Integrated playback is an optional convenience, not a requirement for the game.
 
-## Current implementation
+### Spotify controls available
+For compatible Premium accounts with an active Spotify device, the host can:
+- start the selected playlist with shuffle enabled;
+- play or pause;
+- move to the previous or next track;
+- seek backward or forward 15 seconds;
+- register the current Spotify track as played.
 
-- Spotify Authorization Code with PKCE and automatic refresh-token renewal.
-- Anonymous Firebase Authentication with local persistence.
-- Mandatory display name stored under the anonymous Firebase `uid`.
-- Explicit host and participant roles.
-- Six-digit Firestore room codes with transactional collision handling.
-- Rooms expire two hours after creation; starting a round renews the expiry for another two hours.
-- Expired codes may be claimed, cleaned and reused.
-- Changing a room code requires confirmation and closes the previous room.
-- Participants may join an active round at any time.
-- The host appears in the room participant collection and receives a normal participant card.
-- Participant lists update in real time through Firestore snapshots.
-- Starting a round copies all valid Spotify tracks into `rooms/{roomCode}/rounds/{roundId}/songs`.
-- Songs cannot change during an active round.
-- Each browser generates only its own card.
-- Card creation uses a Firestore transaction so reloads or concurrent tabs cannot replace an existing card.
-- Duplicate cards between different participants are allowed.
-- Card marks are saved after every change.
-- The host can read every participant and, under the security model, every card in their room.
-- A participant can read only their own participant record and card.
-- Line and bingo claim validation remain future work.
+The authorization includes `user-read-private`, `user-read-playback-state` and `user-modify-playback-state` in addition to playlist access.
 
-## Firestore model
+### Manual fallback
+If the account is not Premium, there is no active Spotify device, or Spotify rejects playback control, the interface explains that playback must be handled in Spotify. The host can still select any round song and mark it as played. This keeps all bingo functionality available to free accounts.
+
+## Played-song history
+Each song is registered at most once per round:
 
 ```text
-users/{uid}
-  userId
-  displayName
-  createdAt
-  updatedAt
-
-rooms/{roomCode}
-  hostId
-  code
-  status
-  createdAt
-  updatedAt
-  expiresAt
-  currentRoundId
-  playlistId
-  playlistName
-
-rooms/{roomCode}/participants/{uid}
-  userId
-  displayName
-  role
-  active
-  joinedAt
-  updatedAt
-
-rooms/{roomCode}/rounds/{roundId}
-  status
-  playlistId
-  playlistName
-  createdAt
-  startedAt
-  finishedAt
-
-rooms/{roomCode}/rounds/{roundId}/songs/{spotifyId}
+rooms/{roomCode}/rounds/{roundId}/playedSongs/{spotifyId}
   spotifyId
   name
   artist
   imageUrl
   spotifyUrl
   position
-
-rooms/{roomCode}/rounds/{roundId}/cards/{uid}
-  userId
-  roundId
-  songIds
-  markedSongIds
-  lineClaimedAt
-  bingoClaimedAt
-  createdAt
-  updatedAt
+  playedAt
+  playedBy
+  sequence
+  source: "spotify" | "manual"
 ```
 
-## Product rules
+All room members may read this history. Only the host may create, update or delete entries. The history is the future source of truth for validating line and bingo claims; participant card marks alone are not authoritative.
 
-- A room remains joinable while it is open and not expired.
-- Participants may join an already active round.
-- Songs are frozen once a round starts.
-- Changing songs requires finishing the round and starting another from zero.
-- Every new round creates new cards.
-- A card is unique only for the tuple `roomCode + roundId + uid`.
-- Different participants may receive identical cards.
-- Reloading never regenerates an existing card.
-- The host is a participant with additional privileges, not a separate player type.
-- The room code alone identifies the room; the Firebase `uid` identifies the person and card owner.
+## Firestore model
+```text
+users/{uid}
+rooms/{roomCode}
+rooms/{roomCode}/participants/{uid}
+rooms/{roomCode}/rounds/{roundId}
+rooms/{roomCode}/rounds/{roundId}/songs/{spotifyId}
+rooms/{roomCode}/rounds/{roundId}/playedSongs/{spotifyId}
+rooms/{roomCode}/rounds/{roundId}/cards/{uid}
+```
+
+## Current implementation
+- Spotify Authorization Code with PKCE and refresh tokens.
+- Anonymous Firebase Authentication.
+- Persistent rooms, participants, rounds, cards and marks.
+- Immutable songs per round and late joins.
+- Optional Spotify playback controls for compatible Premium sessions.
+- Universal manual song registration fallback.
+- Realtime played-song history.
+- Firestore rules allowing only the host to mutate played songs.
 
 ## Still excluded
-
-- Permanent user accounts or recovery after deleting browser data.
+- Automatic line and bingo validation.
+- Reliable realtime presence and host handover.
 - Automatic deployment of Firestore rules.
-- Line and bingo claims and host validation.
-- Trusted backend rate limiting and App Check enforcement.
-- Audio streaming inside the application.
-- Payments, prizes and public room discovery.
+- Permanent accounts, payments, prizes and public room discovery.
