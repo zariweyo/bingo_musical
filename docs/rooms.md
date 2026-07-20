@@ -1,62 +1,11 @@
 # Rooms, participants and rounds
 
-## Identity and names
+## Identity and rooms
+Firebase anonymous authentication provides the browser identity. The display name is stored in `users/{uid}` and copied to `rooms/{roomCode}/participants/{uid}`. The host is also a participant.
 
-Firebase anonymous authentication supplies the stable browser identity for both roles. Before choosing a role, the user enters a display name, stored at:
+Room codes contain six digits. Rooms remain open for two hours and starting a round renews that period. Participants may join an active round.
 
-```text
-users/{firebaseUid}
-  userId
-  displayName
-  createdAt
-  updatedAt
-```
-
-When entering a room, that name is copied into the room participant document. The host is also represented as a participant.
-
-## Room lifetime and codes
-
-Room codes contain six digits and are reserved transactionally. A room is joinable only while its document exists, has `status: "open"`, and `expiresAt` is in the future.
-
-```text
-rooms/{sixDigitCode}
-  hostId
-  code
-  status: "open" | "closed" | "resetting"
-  createdAt
-  updatedAt
-  expiresAt
-  currentRoundId
-  playlistId
-  playlistName
-```
-
-The initial validity is two hours. Starting a round renews `expiresAt` for another two hours so an active game does not expire immediately after beginning.
-
-If a generated code is already active, another random code is tried. If it is expired, it is claimed in `resetting` state, all old participants, rounds, songs and cards are removed, and it is reopened.
-
-Changing the room number requires confirmation. The old room is closed, which invalidates existing participant sessions, and a new room is created for the host.
-
-## Participants
-
-```text
-rooms/{roomCode}/participants/{firebaseUid}
-  userId
-  displayName
-  role: "host" | "participant"
-  active
-  joinedAt
-  updatedAt
-```
-
-Participants may enter before or after a round starts. Leaving marks the document inactive rather than deleting it. Rejoining from the same browser reactivates the record and preserves the same Firebase `uid`.
-
-The host listens to the participant collection and sees names, roles and active state in real time.
-
-## Rounds and immutable songs
-
-Starting a game creates a new round in `preparing` state. The host copies every valid Spotify song into the round's `songs` collection. Only after all song batches have been written does the round become `active` and the room's `currentRoundId` change.
-
+## Round data
 ```text
 rooms/{roomCode}/rounds/{roundId}
   status: "preparing" | "active" | "finished"
@@ -75,52 +24,64 @@ rooms/{roomCode}/rounds/{roundId}/songs/{spotifyId}
   position
 ```
 
-Songs do not change during an active round. A different playlist or song selection requires ending the current round and starting a completely new round.
+The song pool is immutable while the round is active. Changing playlist requires finishing the round and starting a new one.
 
-## Autonomous card creation
-
-Every room member watches `currentRoundId`, the round and its songs through Firestore snapshots. Once the round is active and at least 15 songs are available, that browser checks:
-
-```text
-rooms/{roomCode}/rounds/{roundId}/cards/{firebaseUid}
-```
-
-If the card exists, it is loaded. If it does not, the browser chooses 15 songs and creates the document inside a Firestore transaction. This gives each participant autonomy while preventing reloads or concurrent tabs from replacing an existing card.
+## Played songs
+The application maintains its own round-specific playback history rather than relying on Spotify's global recently-played list.
 
 ```text
-rooms/{roomCode}/rounds/{roundId}/cards/{firebaseUid}
-  userId
-  roundId
-  songIds
-  markedSongIds
-  lineClaimedAt
-  bingoClaimedAt
-  createdAt
-  updatedAt
+rooms/{roomCode}/rounds/{roundId}/playedSongs/{spotifyId}
+  spotifyId
+  name
+  artist
+  imageUrl
+  spotifyUrl
+  position
+  playedAt
+  playedBy
+  sequence
+  source: "spotify" | "manual"
 ```
 
-Different participants may receive identical cards. Uniqueness between users is not required. The host receives a card through exactly the same mechanism.
+A document ID is the Spotify track ID, so the same song is recorded only once per round. `sequence` preserves the order in which songs were first registered.
 
-Marks are updated in Firestore after every change and are restored after reload. A participant cannot change `songIds` after card creation.
+Only the host may write this collection. Every room member may watch it in real time. The host can populate it in two ways:
 
-## Realtime behavior
+- `spotify`: the song is read from the current Spotify playback state and registered through the integrated controls;
+- `manual`: the host selects the song after playing it in Spotify independently.
 
-- The room snapshot announces closure and new rounds.
-- The round snapshot announces `preparing`, `active` and `finished` states.
-- The song snapshot supplies the immutable pool used to generate cards.
-- The card snapshot restores marks and card contents.
-- The participant snapshot supplies the host's participant list.
-- Late participants automatically create their card for the current active round.
+The manual path is always available and is the fallback for non-Premium accounts, inactive devices and Spotify playback errors.
+
+## Spotify playback
+The host's Spotify profile is checked after authorization. Premium accounts are offered playback controls when Spotify accepts remote playback commands. The application requests:
+
+```text
+playlist-read-private
+playlist-read-collaborative
+user-read-private
+user-read-playback-state
+user-modify-playback-state
+```
+
+Starting a round attempts to enable shuffle and start the selected playlist. If Spotify cannot control playback, the interface falls back to manual mode without blocking the round.
+
+## Cards
+Each participant creates `cards/{uid}` transactionally after detecting an active round and its songs. Existing cards are reused after reload. Marks are persisted. Duplicate cards between different participants are acceptable.
+
+## Realtime listeners
+- room: closure and active round;
+- participants: host participant list;
+- round: preparation, active and finished states;
+- songs: immutable card pool;
+- playedSongs: authoritative playback history;
+- card: the current user's card and marks.
 
 ## Security model
+- Signed-in users may fetch a room by exact code but may not list rooms.
+- Participants may read their own participant document and card.
+- The host may read all participants and cards.
+- Only the host may create rounds, songs and played-song entries.
+- Played-song entries must identify the authenticated host in `playedBy` and use `manual` or `spotify` as their source.
+- All room members may read played songs while the room is valid.
 
-- Signed-in users may fetch a room by exact code, but cannot list rooms.
-- Users may read and update only their own profile.
-- Participants may read only their own participant record and card.
-- The host may read all participants and cards in their room.
-- Only the host may create rounds and write songs.
-- Each participant may create only `cards/{theirUid}` with exactly 15 songs.
-- Card owners may update marks and future claims, but not identity, round or song IDs.
-- Room, round and song mutation remains host-only.
-
-The versioned `firestore.rules` file must be deployed before this authorization model is relied upon outside development test mode.
+The versioned `firestore.rules` file must be deployed before relying on these permissions outside development test mode.
