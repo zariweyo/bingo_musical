@@ -1,102 +1,126 @@
-# Rooms and participant entry
+# Rooms, participants and rounds
 
-## User flow
+## Identity and names
 
-The landing screen asks the user to choose one role:
+Firebase anonymous authentication supplies the stable browser identity for both roles. Before choosing a role, the user enters a display name, stored at:
 
-- **Host**: reserves a six-digit room number in Firestore, then connects Spotify and prepares the bingo.
-- **Participant**: enters a six-digit number and joins without connecting Spotify.
+```text
+users/{firebaseUid}
+  userId
+  displayName
+  createdAt
+  updatedAt
+```
 
-Firebase anonymous authentication supplies the identity for both roles. The public room number is not an authentication credential; it is only the lookup key used to find a private game.
+When entering a room, that name is copied into the room participant document. The host is also represented as a participant.
 
-## Room lifetime
+## Room lifetime and codes
 
-Every room is valid for two hours from its creation time.
-
-Room documents include:
+Room codes contain six digits and are reserved transactionally. A room is joinable only while its document exists, has `status: "open"`, and `expiresAt` is in the future.
 
 ```text
 rooms/{sixDigitCode}
-  hostId: string
-  code: string
+  hostId
+  code
   status: "open" | "closed" | "resetting"
-  createdAt: timestamp
-  updatedAt: timestamp
-  expiresAt: timestamp
-  currentRoundId: string | null
-  playlistId: string | null
-  playlistName: string | null
+  createdAt
+  updatedAt
+  expiresAt
+  currentRoundId
+  playlistId
+  playlistName
 ```
 
-A room can be joined only when:
+The initial validity is two hours. Starting a round renews `expiresAt` for another two hours so an active game does not expire immediately after beginning.
 
-1. The document exists.
-2. `status` is `open`.
-3. `expiresAt` is later than the current time.
+If a generated code is already active, another random code is tried. If it is expired, it is claimed in `resetting` state, all old participants, rounds, songs and cards are removed, and it is reopened.
 
-The client reports the same user-facing message when the code is missing, closed or expired: `La partida no existe o ya ha caducado.` This avoids exposing unnecessary room state.
+Changing the room number requires confirmation. The old room is closed, which invalidates existing participant sessions, and a new room is created for the host.
 
-## Collision handling
-
-Hosts generate random numbers between `100000` and `999999`. Reservation is performed inside a Firestore transaction.
-
-- If the document does not exist, the transaction creates the room.
-- If the code belongs to a room that is still valid, the candidate is rejected and another random number is tried.
-- If the existing room has expired, the transaction transfers the code to the new host with status `resetting`.
-
-The transaction prevents two hosts from claiming the same active code concurrently.
-
-## Reusing an expired code
-
-Overwriting a Firestore document does not delete its subcollections. After an expired code is claimed, `RoomSessionService` explicitly deletes the previous contents in this order:
-
-1. Every card under every round.
-2. Every round.
-3. Every participant.
-4. The room status changes from `resetting` to `open`.
-
-Participants cannot join while the room is in `resetting`, preventing a newly joined participant from being removed by the cleanup operation.
-
-## Participant records
-
-Joining creates or refreshes:
+## Participants
 
 ```text
 rooms/{roomCode}/participants/{firebaseUid}
-  userId: string
-  displayName: "Participante"
-  joinedAt: timestamp
-  updatedAt: timestamp
-  active: true
+  userId
+  displayName
+  role: "host" | "participant"
+  active
+  joinedAt
+  updatedAt
 ```
 
-The Firebase anonymous `uid` is used as the participant document ID, so refreshing the browser does not create duplicate participant records in the same browser profile.
+Participants may enter before or after a round starts. Leaving marks the document inactive rather than deleting it. Rejoining from the same browser reactivates the record and preserves the same Firebase `uid`.
 
-Leaving marks the participant as inactive. The record remains available to support reconnect and future round history until the room expires or the host removes it.
+The host listens to the participant collection and sees names, roles and active state in real time.
 
-## Browser persistence
+## Rounds and immutable songs
 
-The application stores only the selected role and six-digit room number in local storage. On reload:
+Starting a game creates a new round in `preparing` state. The host copies every valid Spotify song into the round's `songs` collection. Only after all song batches have been written does the round become `active` and the room's `currentRoundId` change.
 
-- A host session is restored only when the room still exists, belongs to the same Firebase `uid`, remains open and has not expired.
-- A participant session is restored by joining the room again. If it is no longer available, the application returns to role selection.
-- The host role and room number survive the Spotify authorization redirect.
+```text
+rooms/{roomCode}/rounds/{roundId}
+  status: "preparing" | "active" | "finished"
+  playlistId
+  playlistName
+  createdAt
+  startedAt
+  finishedAt
 
-## Security rules
+rooms/{roomCode}/rounds/{roundId}/songs/{spotifyId}
+  spotifyId
+  name
+  artist
+  imageUrl
+  spotifyUrl
+  position
+```
 
-`firestore.rules` enforces:
+Songs do not change during an active round. A different playlist or song selection requires ending the current round and starting a completely new round.
 
-- exact-code reads only; room listing remains forbidden;
-- six-digit room IDs;
-- an expiry no more than two hours in the future;
-- joining only open, unexpired rooms;
-- normal room updates only by the current host;
-- takeover only when the previous room has expired;
-- a mandatory `resetting` state during takeover;
-- host-only deletion of stale participants, rounds and cards.
+## Autonomous card creation
 
-The rules in the repository must be deployed before testing this flow against a production Firestore database. Test-mode rules do not validate the intended authorization model.
+Every room member watches `currentRoundId`, the round and its songs through Firestore snapshots. Once the round is active and at least 15 songs are available, that browser checks:
 
-## Current boundary
+```text
+rooms/{roomCode}/rounds/{roundId}/cards/{firebaseUid}
+```
 
-Real room reservation and participant membership are implemented. Distribution and synchronization of participant cards, round state, line claims and bingo claims remain the next multiplayer milestone.
+If the card exists, it is loaded. If it does not, the browser chooses 15 songs and creates the document inside a Firestore transaction. This gives each participant autonomy while preventing reloads or concurrent tabs from replacing an existing card.
+
+```text
+rooms/{roomCode}/rounds/{roundId}/cards/{firebaseUid}
+  userId
+  roundId
+  songIds
+  markedSongIds
+  lineClaimedAt
+  bingoClaimedAt
+  createdAt
+  updatedAt
+```
+
+Different participants may receive identical cards. Uniqueness between users is not required. The host receives a card through exactly the same mechanism.
+
+Marks are updated in Firestore after every change and are restored after reload. A participant cannot change `songIds` after card creation.
+
+## Realtime behavior
+
+- The room snapshot announces closure and new rounds.
+- The round snapshot announces `preparing`, `active` and `finished` states.
+- The song snapshot supplies the immutable pool used to generate cards.
+- The card snapshot restores marks and card contents.
+- The participant snapshot supplies the host's participant list.
+- Late participants automatically create their card for the current active round.
+
+## Security model
+
+- Signed-in users may fetch a room by exact code, but cannot list rooms.
+- Users may read and update only their own profile.
+- Participants may read only their own participant record and card.
+- The host may read all participants and cards in their room.
+- Only the host may create rounds and write songs.
+- Each participant may create only `cards/{theirUid}` with exactly 15 songs.
+- Card owners may update marks and future claims, but not identity, round or song IDs.
+- Room, round and song mutation remains host-only.
+
+The versioned `firestore.rules` file must be deployed before this authorization model is relied upon outside development test mode.
