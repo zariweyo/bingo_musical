@@ -1,128 +1,50 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isSignedIn() { return request.auth != null; }
-    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
-    function roomPath(roomId) { return /databases/$(database)/documents/rooms/$(roomId); }
-    function participantPath(roomId, userId) { return /databases/$(database)/documents/rooms/$(roomId)/participants/$(userId); }
-    function roomExists(roomId) { return exists(roomPath(roomId)); }
-    function roomData(roomId) { return get(roomPath(roomId)).data; }
-    function isSixDigitCode(roomId) { return roomId.matches('^[0-9]{6}$'); }
-    function isHost(roomId) { return isSignedIn() && roomExists(roomId) && roomData(roomId).hostId == request.auth.uid; }
-    function isParticipant(roomId) { return isSignedIn() && exists(participantPath(roomId, request.auth.uid)); }
-    function isRoomMember(roomId) { return isHost(roomId) || isParticipant(roomId); }
-    function roomIsExpiredData(data) { return !data.keys().hasAll(['expiresAt']) || data.expiresAt <= request.time; }
-    function roomIsJoinable(roomId) {
-      return roomExists(roomId) && roomData(roomId).status == 'open' && !roomIsExpiredData(roomData(roomId));
+    function isSignedIn(){return request.auth!=null;}
+    function isOwner(id){return isSignedIn()&&request.auth.uid==id;}
+    function roomPath(roomId){return /databases/$(database)/documents/rooms/$(roomId);}
+    function participantPath(roomId,userId){return /databases/$(database)/documents/rooms/$(roomId)/participants/$(userId);}
+    function roomExists(roomId){return exists(roomPath(roomId));}
+    function roomData(roomId){return get(roomPath(roomId)).data;}
+    function isHost(roomId){return isSignedIn()&&roomExists(roomId)&&roomData(roomId).hostId==request.auth.uid;}
+    function isParticipant(roomId){return isSignedIn()&&exists(participantPath(roomId,request.auth.uid));}
+    function isMember(roomId){return isHost(roomId)||isParticipant(roomId);}
+    function expired(data){return !data.keys().hasAll(['expiresAt'])||data.expiresAt<=request.time;}
+    function joinable(roomId){return roomExists(roomId)&&roomData(roomId).status=='open'&&!expired(roomData(roomId));}
+
+    match /users/{userId}{
+      allow read,delete: if isOwner(userId);
+      allow create,update: if isOwner(userId)&&request.resource.data.keys().hasOnly(['userId','displayName','createdAt','updatedAt'])&&request.resource.data.userId==request.auth.uid&&request.resource.data.displayName is string&&request.resource.data.displayName.size()>=2&&request.resource.data.displayName.size()<=40;
     }
-    function validRoomShape(roomId) {
-      return request.resource.data.keys().hasOnly([
-          'hostId', 'code', 'status', 'createdAt', 'updatedAt', 'expiresAt',
-          'currentRoundId', 'playlistId', 'playlistName'
-        ])
-        && request.resource.data.hostId == request.auth.uid
-        && request.resource.data.code == roomId
-        && isSixDigitCode(roomId)
-        && request.resource.data.expiresAt > request.time
-        && request.resource.data.expiresAt <= request.time + duration.value(2, 'h');
-    }
-
-    match /users/{userId} {
-      allow read: if isOwner(userId);
-      allow create, update: if isOwner(userId)
-        && request.resource.data.keys().hasOnly(['userId', 'displayName', 'createdAt', 'updatedAt'])
-        && request.resource.data.userId == request.auth.uid
-        && request.resource.data.displayName is string
-        && request.resource.data.displayName.size() >= 2
-        && request.resource.data.displayName.size() <= 40;
-      allow delete: if isOwner(userId);
-    }
-
-    match /rooms/{roomId} {
-      allow get: if isSignedIn();
-      allow list: if false;
-
-      allow create: if isSignedIn() && validRoomShape(roomId) && request.resource.data.status == 'open';
-
-      allow update: if (
-          isHost(roomId)
-          && request.resource.data.hostId == resource.data.hostId
-          && request.resource.data.code == resource.data.code
-          && request.resource.data.createdAt == resource.data.createdAt
-          && request.resource.data.expiresAt <= request.time + duration.value(2, 'h')
-        ) || (
-          isSignedIn()
-          && roomIsExpiredData(resource.data)
-          && validRoomShape(roomId)
-          && request.resource.data.status == 'resetting'
-        );
-
+    match /rooms/{roomId}{
+      allow get: if isSignedIn(); allow list: if false;
+      allow create: if isSignedIn()&&roomId.matches('^[0-9]{6}$')&&request.resource.data.hostId==request.auth.uid&&request.resource.data.code==roomId&&request.resource.data.expiresAt>request.time&&request.resource.data.expiresAt<=request.time+duration.value(2,'h');
+      allow update: if isHost(roomId)||(isSignedIn()&&expired(resource.data)&&request.resource.data.hostId==request.auth.uid);
       allow delete: if isHost(roomId);
-
-      match /participants/{participantId} {
-        allow read: if isHost(roomId) || isOwner(participantId);
-
-        allow create: if isOwner(participantId)
-          && (roomIsJoinable(roomId) || getAfter(roomPath(roomId)).data.hostId == request.auth.uid)
-          && request.resource.data.keys().hasOnly([
-            'userId', 'displayName', 'role', 'joinedAt', 'updatedAt', 'active'
-          ])
-          && request.resource.data.userId == request.auth.uid
-          && request.resource.data.displayName is string
-          && request.resource.data.displayName.size() >= 2
-          && request.resource.data.displayName.size() <= 40
-          && request.resource.data.role in ['host', 'participant']
-          && (request.resource.data.role == 'participant' || getAfter(roomPath(roomId)).data.hostId == request.auth.uid)
-          && request.resource.data.active == true;
-
-        allow update: if (isOwner(participantId) || isHost(roomId))
-          && request.resource.data.userId == resource.data.userId
-          && request.resource.data.role == resource.data.role;
-        allow delete: if isOwner(participantId) || isHost(roomId);
+      match /participants/{participantId}{
+        allow read: if isHost(roomId)||isOwner(participantId);
+        allow create: if isOwner(participantId)&&(joinable(roomId)||getAfter(roomPath(roomId)).data.hostId==request.auth.uid)&&request.resource.data.userId==request.auth.uid&&request.resource.data.displayName is string&&request.resource.data.displayName.size()>=2&&request.resource.data.displayName.size()<=40;
+        allow update: if (isOwner(participantId)||isHost(roomId))&&request.resource.data.userId==resource.data.userId&&request.resource.data.role==resource.data.role;
+        allow delete: if isOwner(participantId)||isHost(roomId);
       }
-
-      match /rounds/{roundId} {
-        allow read: if isRoomMember(roomId) && !roomIsExpiredData(roomData(roomId));
-        allow create, update, delete: if isHost(roomId);
-
-        match /songs/{songId} {
-          allow read: if isRoomMember(roomId) && !roomIsExpiredData(roomData(roomId));
-          allow create, update, delete: if isHost(roomId);
+      match /rounds/{roundId}{
+        allow read: if isMember(roomId)&&!expired(roomData(roomId));
+        allow create,update,delete: if isHost(roomId);
+        match /songs/{songId}{allow read: if isMember(roomId)&&!expired(roomData(roomId));allow create,update,delete: if isHost(roomId);}
+        match /playedSongs/{songId}{
+          allow read: if isMember(roomId)&&!expired(roomData(roomId));
+          allow create: if isHost(roomId)&&request.resource.data.keys().hasOnly(['spotifyId','name','artist','imageUrl','spotifyUrl','position','playedAt','playedBy','sequence','source'])&&request.resource.data.spotifyId==songId&&request.resource.data.playedBy==request.auth.uid&&request.resource.data.source in ['spotify','manual'];
+          allow update,delete: if isHost(roomId);
         }
-
-        match /cards/{cardId} {
-          allow read: if (isHost(roomId) || isOwner(cardId)) && !roomIsExpiredData(roomData(roomId));
-
-          allow create: if isOwner(cardId)
-            && isParticipant(roomId)
-            && !roomIsExpiredData(roomData(roomId))
-            && request.resource.data.keys().hasOnly([
-              'userId', 'roundId', 'songIds', 'markedSongIds', 'lineClaimedAt',
-              'bingoClaimedAt', 'createdAt', 'updatedAt'
-            ])
-            && request.resource.data.userId == request.auth.uid
-            && request.resource.data.roundId == roundId
-            && request.resource.data.songIds is list
-            && request.resource.data.songIds.size() == 15
-            && request.resource.data.markedSongIds.size() == 0
-            && request.resource.data.lineClaimedAt == null
-            && request.resource.data.bingoClaimedAt == null;
-
-          allow update: if isHost(roomId) || (
-            isOwner(cardId)
-            && request.resource.data.userId == resource.data.userId
-            && request.resource.data.roundId == resource.data.roundId
-            && request.resource.data.songIds == resource.data.songIds
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'markedSongIds', 'lineClaimedAt', 'bingoClaimedAt', 'updatedAt'
-            ])
-          );
+        match /cards/{cardId}{
+          allow read: if (isHost(roomId)||isOwner(cardId))&&!expired(roomData(roomId));
+          allow create: if isOwner(cardId)&&isParticipant(roomId)&&!expired(roomData(roomId))&&request.resource.data.userId==request.auth.uid&&request.resource.data.roundId==roundId&&request.resource.data.songIds is list&&request.resource.data.songIds.size()==15&&request.resource.data.markedSongIds.size()==0;
+          allow update: if isHost(roomId)||(isOwner(cardId)&&request.resource.data.userId==resource.data.userId&&request.resource.data.roundId==resource.data.roundId&&request.resource.data.songIds==resource.data.songIds&&request.resource.data.diff(resource.data).affectedKeys().hasOnly(['markedSongIds','lineClaimedAt','bingoClaimedAt','updatedAt']));
           allow delete: if isHost(roomId);
         }
       }
     }
-
-    match /{document=**} { allow read, write: if false; }
+    match /{document=**}{allow read,write: if false;}
   }
 }
