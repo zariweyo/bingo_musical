@@ -39,31 +39,53 @@ const invitationUrl = (roomCode: string): string => {
   return url.toString();
 };
 
+const roomCodeForElement = (element: HTMLElement): string => {
+  const source = element.dataset['roomCode'] ?? element.textContent ?? '';
+  return source.replace(/\D/g, '').slice(0, 6);
+};
+
+const shareRoom = async (element: HTMLElement): Promise<void> => {
+  const roomCode = roomCodeForElement(element);
+  if (roomCode.length !== 6) return;
+
+  const url = invitationUrl(roomCode);
+  try {
+    if (navigator.share) {
+      await navigator.share({
+        title: 'Bingo Musical',
+        text: `Únete a mi partida de Bingo Musical. Sala ${roomCode}.`,
+        url,
+      });
+      return;
+    }
+
+    await copyText(url);
+    const originalText = element.textContent;
+    element.textContent = 'Enlace copiado';
+    window.setTimeout(() => { element.textContent = originalText; }, 1800);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return;
+    await copyText(url).catch(() => undefined);
+  }
+};
+
 const bindInviteControls = (): void => {
-  document.querySelectorAll<HTMLElement>('.share-room-button').forEach((button) => {
-    if (button.dataset['shareBound'] === 'true') return;
-    button.dataset['shareBound'] = 'true';
-    button.addEventListener('click', async () => {
-      const roomCode = (button.dataset['roomCode'] ?? '').replace(/\D/g, '').slice(0, 6);
-      if (roomCode.length !== 6) return;
-      const url = invitationUrl(roomCode);
-      try {
-        if (navigator.share) {
-          await navigator.share({
-            title: 'Bingo Musical',
-            text: `Únete a mi partida de Bingo Musical. Sala ${roomCode}.`,
-            url,
-          });
-          return;
-        }
-        await copyText(url);
-        const originalText = button.textContent;
-        button.textContent = 'Enlace copiado';
-        window.setTimeout(() => { button.textContent = originalText; }, 1800);
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') return;
-        await copyText(url).catch(() => undefined);
-      }
+  document.querySelectorAll<HTMLElement>('.share-room-button, .header-room-code').forEach((element) => {
+    if (element.dataset['shareBound'] === 'true') return;
+    element.dataset['shareBound'] = 'true';
+
+    if (element.classList.contains('header-room-code')) {
+      element.setAttribute('role', 'button');
+      element.setAttribute('tabindex', '0');
+      element.setAttribute('aria-label', `${element.textContent?.trim() ?? 'Sala'}. Compartir invitación`);
+      element.style.cursor = 'pointer';
+    }
+
+    element.addEventListener('click', () => void shareRoom(element));
+    element.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      void shareRoom(element);
     });
   });
 };
