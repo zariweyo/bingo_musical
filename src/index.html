@@ -33,9 +33,16 @@
       box-sizing: border-box;
       margin: 8px 0 12px;
       padding: 12px;
-      border: 1px solid #cbd5e1;
+      border: 1px solid #475569;
       border-radius: 10px;
+      color: #ffffff;
+      background: #0f172a;
       font: inherit;
+    }
+
+    #print-card-count option {
+      color: #ffffff;
+      background: #0f172a;
     }
   </style>
 </head>
@@ -63,63 +70,27 @@
       button.addEventListener('click', async () => {
         const playlistId = getSelectedPlaylistId();
         const accessToken = sessionStorage.getItem(tokenKey);
-
-        if (!playlistId || !accessToken) {
-          return;
-        }
+        if (!playlistId || !accessToken) return;
 
         const debugWindow = window.open('', '_blank');
         button.disabled = true;
         button.textContent = 'Cargando JSON…';
 
         try {
-          const url =
-            `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/items` +
-            '?limit=50&additional_types=track';
-
-          const response = await fetch(url, {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-          });
-
+          const url = `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/items?limit=50&additional_types=track`;
+          const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
           const responseText = await response.text();
           let body;
-
-          try {
-            body = JSON.parse(responseText);
-          } catch {
-            body = responseText;
-          }
-
-          const debugPayload = {
-            requestedUrl: url,
-            status: response.status,
-            statusText: response.statusText,
-            ok: response.ok,
-            body,
-          };
-
-          const blob = new Blob([JSON.stringify(debugPayload, null, 2)], {
-            type: 'application/json',
-          });
+          try { body = JSON.parse(responseText); } catch { body = responseText; }
+          const blob = new Blob([JSON.stringify({ requestedUrl: url, status: response.status, statusText: response.statusText, ok: response.ok, body }, null, 2)], { type: 'application/json' });
           const blobUrl = URL.createObjectURL(blob);
-
-          if (debugWindow) {
-            debugWindow.location.href = blobUrl;
-          } else {
-            window.open(blobUrl, '_blank');
-          }
-
+          if (debugWindow) debugWindow.location.href = blobUrl;
+          else window.open(blobUrl, '_blank');
           window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-
-          if (debugWindow) {
-            debugWindow.document.body.innerHTML = `<pre>${message}</pre>`;
-          } else {
-            alert(message);
-          }
+          if (debugWindow) debugWindow.document.body.innerHTML = `<pre>${message}</pre>`;
+          else alert(message);
         } finally {
           button.disabled = false;
           button.textContent = 'Ver JSON raw';
@@ -127,10 +98,7 @@
       });
 
       document.addEventListener('ionChange', updateButtonVisibility);
-      new MutationObserver(updateButtonVisibility).observe(document.body, {
-        childList: true,
-        subtree: true,
-      });
+      new MutationObserver(updateButtonVisibility).observe(document.body, { childList: true, subtree: true });
       window.setInterval(updateButtonVisibility, 500);
       updateButtonVisibility();
     })();
@@ -140,7 +108,7 @@
     (() => {
       const tokenKey = 'spotify_access_token';
       const cardSize = 15;
-      const maxCards = 200;
+      const allowedCounts = [4, 8, 12, 16, 20, 24, 28, 32, 36, 40];
       let generating = false;
 
       const selectedPlaylistId = () => {
@@ -148,10 +116,7 @@
         return typeof select?.value === 'string' && select.value ? select.value : null;
       };
 
-      const selectedPlaylistName = () => {
-        const summary = document.querySelector('.playlist-summary strong');
-        return summary?.textContent?.trim() || 'Bingo Musical';
-      };
+      const selectedPlaylistName = () => document.querySelector('.playlist-summary strong')?.textContent?.trim() || 'Bingo Musical';
 
       const shuffle = values => {
         const result = [...values];
@@ -165,14 +130,9 @@
       const loadTracks = async (playlistId, accessToken) => {
         const tracks = [];
         let next = `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/items?limit=50&additional_types=track`;
-
         while (next) {
-          const response = await fetch(next, {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          });
-          if (!response.ok) {
-            throw new Error('No se pudieron cargar las canciones de la playlist.');
-          }
+          const response = await fetch(next, { headers: { Authorization: `Bearer ${accessToken}` } });
+          if (!response.ok) throw new Error('No se pudieron cargar las canciones de la playlist.');
           const page = await response.json();
           for (const row of page.items || []) {
             const track = row.item || row.track;
@@ -180,13 +140,12 @@
               tracks.push({
                 id: track.id,
                 name: track.name || 'Canción',
-                artist: track.artists?.[0]?.name || 'Artista desconocido',
+                artist: track.artists?.map(artist => artist.name).join(', ') || 'Artista desconocido',
               });
             }
           }
           next = page.next;
         }
-
         return [...new Map(tracks.map(track => [track.id, track])).values()];
       };
 
@@ -194,7 +153,6 @@
         const cards = [];
         const signatures = new Set();
         let attempts = 0;
-
         while (cards.length < count && attempts < count * 30) {
           attempts += 1;
           const card = shuffle(tracks).slice(0, cardSize);
@@ -204,10 +162,7 @@
             cards.push(card);
           }
         }
-
-        while (cards.length < count) {
-          cards.push(shuffle(tracks).slice(0, cardSize));
-        }
+        while (cards.length < count) cards.push(shuffle(tracks).slice(0, cardSize));
         return cards;
       };
 
@@ -219,7 +174,60 @@
         .replace(/\(/g, '\\(')
         .replace(/\)/g, '\\)');
 
-      const truncate = (value, max) => value.length > max ? `${value.slice(0, max - 3)}...` : value;
+      const estimatedWidth = (value, fontSize, bold = false) => value.length * fontSize * (bold ? 0.56 : 0.51);
+
+      const splitLongWord = (word, maxWidth, fontSize, bold) => {
+        const pieces = [];
+        let current = '';
+        for (const character of word) {
+          if (current && estimatedWidth(current + character, fontSize, bold) > maxWidth) {
+            pieces.push(current);
+            current = character;
+          } else current += character;
+        }
+        if (current) pieces.push(current);
+        return pieces;
+      };
+
+      const wrapText = (value, maxWidth, fontSize, bold = false) => {
+        const words = String(value).trim().split(/\s+/).flatMap(word =>
+          estimatedWidth(word, fontSize, bold) <= maxWidth
+            ? [word]
+            : splitLongWord(word, maxWidth, fontSize, bold)
+        );
+        const lines = [];
+        let current = '';
+        for (const word of words) {
+          const candidate = current ? `${current} ${word}` : word;
+          if (current && estimatedWidth(candidate, fontSize, bold) > maxWidth) {
+            lines.push(current);
+            current = word;
+          } else current = candidate;
+        }
+        if (current) lines.push(current);
+        return lines.length ? lines : [''];
+      };
+
+      const fittedLines = (value, maxWidth, maxHeight, preferredSize, minSize, bold = false) => {
+        for (let size = preferredSize; size >= minSize; size -= 0.25) {
+          const lines = wrapText(value, maxWidth, size, bold);
+          const lineHeight = size * 1.22;
+          if (lines.length * lineHeight <= maxHeight) return { lines, size, lineHeight };
+        }
+        const size = minSize;
+        const lines = wrapText(value, maxWidth, size, bold);
+        return { lines, size, lineHeight: size * 1.12 };
+      };
+
+      const addCenteredLines = (commands, lines, font, fontSize, lineHeight, centerX, centerY) => {
+        const firstY = centerY + ((lines.length - 1) * lineHeight) / 2;
+        lines.forEach((line, index) => {
+          const width = estimatedWidth(line, fontSize, font === 'F2');
+          const x = centerX - width / 2;
+          const y = firstY - index * lineHeight;
+          commands.push(`BT /${font} ${fontSize.toFixed(2)} Tf ${x.toFixed(2)} ${y.toFixed(2)} Td (${pdfText(line)}) Tj ET`);
+        });
+      };
 
       const buildPdf = (cards, playlistName) => {
         const pageWidth = 842;
@@ -230,11 +238,7 @@
         const cardHeight = (pageHeight - margin * 2 - gap) / 2;
         const objects = [];
         const pageIds = [];
-        const addObject = body => {
-          objects.push(body);
-          return objects.length;
-        };
-
+        const addObject = body => { objects.push(body); return objects.length; };
         const fontId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
         const boldFontId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
         const pagesId = addObject('');
@@ -242,7 +246,6 @@
         for (let pageIndex = 0; pageIndex < Math.ceil(cards.length / 4); pageIndex += 1) {
           const commands = [];
           const pageCards = cards.slice(pageIndex * 4, pageIndex * 4 + 4);
-
           pageCards.forEach((card, slot) => {
             const column = slot % 2;
             const row = Math.floor(slot / 2);
@@ -257,9 +260,10 @@
 
             commands.push('0.7 w');
             commands.push(`${x.toFixed(2)} ${y.toFixed(2)} ${cardWidth.toFixed(2)} ${cardHeight.toFixed(2)} re S`);
-            commands.push(`BT /F2 12 Tf ${x + inner} ${y + cardHeight - 18} Td (${pdfText('BINGO MUSICAL')}) Tj ET`);
-            commands.push(`BT /F1 7 Tf ${x + inner} ${y + cardHeight - 29} Td (${pdfText(truncate(playlistName, 55))}) Tj ET`);
-            commands.push(`BT /F1 7 Tf ${x + cardWidth - 68} ${y + cardHeight - 18} Td (${pdfText(`Carton ${pageIndex * 4 + slot + 1}`)}) Tj ET`);
+            commands.push(`BT /F2 12 Tf ${(x + inner).toFixed(2)} ${(y + cardHeight - 18).toFixed(2)} Td (${pdfText('BINGO MUSICAL')}) Tj ET`);
+            const playlist = fittedLines(playlistName, cardWidth - 150, 13, 7, 5.5);
+            addCenteredLines(commands, playlist.lines, 'F1', playlist.size, playlist.lineHeight, x + cardWidth / 2, y + cardHeight - 29);
+            commands.push(`BT /F1 7 Tf ${(x + cardWidth - 68).toFixed(2)} ${(y + cardHeight - 18).toFixed(2)} Td (${pdfText(`Carton ${pageIndex * 4 + slot + 1}`)}) Tj ET`);
 
             card.forEach((track, index) => {
               const cellColumn = index % 5;
@@ -267,8 +271,14 @@
               const cellX = x + inner + cellColumn * cellWidth;
               const cellY = gridY + (2 - cellRow) * cellHeight;
               commands.push(`${cellX.toFixed(2)} ${cellY.toFixed(2)} ${cellWidth.toFixed(2)} ${cellHeight.toFixed(2)} re S`);
-              commands.push(`BT /F2 6.5 Tf ${cellX + 4} ${cellY + cellHeight - 14} Td (${pdfText(truncate(track.name, 18))}) Tj ET`);
-              commands.push(`BT /F1 5.5 Tf ${cellX + 4} ${cellY + cellHeight - 26} Td (${pdfText(truncate(track.artist, 20))}) Tj ET`);
+
+              const availableWidth = cellWidth - 8;
+              const nameAreaHeight = cellHeight * 0.57;
+              const artistAreaHeight = cellHeight * 0.30;
+              const name = fittedLines(track.name, availableWidth, nameAreaHeight, 6.5, 3.5, true);
+              const artist = fittedLines(track.artist, availableWidth, artistAreaHeight, 5.4, 3.2, false);
+              addCenteredLines(commands, name.lines, 'F2', name.size, name.lineHeight, cellX + cellWidth / 2, cellY + cellHeight * 0.65);
+              addCenteredLines(commands, artist.lines, 'F1', artist.size, artist.lineHeight, cellX + cellWidth / 2, cellY + cellHeight * 0.20);
             });
           });
 
@@ -282,19 +292,31 @@
         const catalogId = addObject(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
         let pdf = '%PDF-1.4\n';
         const offsets = [0];
-
         objects.forEach((object, index) => {
           offsets[index + 1] = pdf.length;
           pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
         });
-
         const xref = pdf.length;
         pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-        for (let i = 1; i <= objects.length; i += 1) {
-          pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
-        }
+        for (let i = 1; i <= objects.length; i += 1) pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
         pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xref}\n%%EOF`;
         return new Blob([pdf], { type: 'application/pdf' });
+      };
+
+      const ensureCountSelector = () => {
+        const current = document.getElementById('print-card-count');
+        if (!current || current.tagName === 'SELECT') return current;
+        const select = document.createElement('select');
+        select.id = 'print-card-count';
+        select.setAttribute('aria-label', 'Número de cartones');
+        allowedCounts.forEach(count => {
+          const option = document.createElement('option');
+          option.value = String(count);
+          option.textContent = `${count} cartones`;
+          select.appendChild(option);
+        });
+        current.replaceWith(select);
+        return select;
       };
 
       const bindControls = () => {
@@ -302,10 +324,9 @@
         const dialog = document.getElementById('print-cards-dialog');
         const cancelButton = document.getElementById('cancel-print-cards');
         const confirmButton = document.getElementById('confirm-print-cards');
-        const countInput = document.getElementById('print-card-count');
+        const countSelector = ensureCountSelector();
         const error = document.getElementById('print-cards-error');
-
-        if (!openButton || !dialog || openButton.dataset.printBound === 'true') return;
+        if (!openButton || !dialog || !confirmButton || !countSelector || openButton.dataset.printBound === 'true') return;
         openButton.dataset.printBound = 'true';
 
         openButton.addEventListener('click', event => {
@@ -313,22 +334,18 @@
           error.hidden = true;
           dialog.showModal();
         });
-
         cancelButton?.addEventListener('click', event => {
           event.preventDefault();
           dialog.close();
         });
-
-        confirmButton?.addEventListener('click', async event => {
+        confirmButton.addEventListener('click', async event => {
           event.preventDefault();
           if (generating) return;
-
-          const count = Number.parseInt(countInput?.value || '', 10);
+          const count = Number.parseInt(countSelector.value || '', 10);
           const playlistId = selectedPlaylistId();
           const accessToken = sessionStorage.getItem(tokenKey);
-
-          if (!Number.isInteger(count) || count < 1 || count > maxCards) {
-            error.textContent = `Indica una cantidad entre 1 y ${maxCards}.`;
+          if (!allowedCounts.includes(count)) {
+            error.textContent = 'Selecciona una cantidad válida de cartones.';
             error.hidden = false;
             return;
           }
@@ -343,12 +360,9 @@
           const originalText = confirmButton.textContent;
           confirmButton.textContent = 'Generando…';
           error.hidden = true;
-
           try {
             const tracks = await loadTracks(playlistId, accessToken);
-            if (tracks.length < cardSize) {
-              throw new Error(`La playlist necesita al menos ${cardSize} canciones válidas.`);
-            }
+            if (tracks.length < cardSize) throw new Error(`La playlist necesita al menos ${cardSize} canciones válidas.`);
             const cards = createCards(tracks, count);
             const blob = buildPdf(cards, selectedPlaylistName());
             const url = URL.createObjectURL(blob);
