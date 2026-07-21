@@ -9,6 +9,7 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { AppComponent } from './app/app.component';
 import { AnonymousAuthService } from './app/core/firebase/anonymous-auth.service';
+import { RoomSessionService } from './app/core/firebase/room-session.service';
 import { firebaseConfig } from './environments/firebase.config';
 
 const invitedRoomCode = (new URLSearchParams(window.location.search).get('room') ?? '')
@@ -90,6 +91,53 @@ const bindInviteControls = (): void => {
   });
 };
 
+const clearHostSession = (): void => {
+  localStorage.removeItem('bingo_session_role');
+  localStorage.removeItem('bingo_room_code');
+  localStorage.removeItem('spotify_refresh_token');
+  for (const key of [
+    'spotify_access_token',
+    'spotify_token_expiry',
+    'spotify_code_verifier',
+    'spotify_auth_state',
+  ]) {
+    sessionStorage.removeItem(key);
+  }
+};
+
+const bindLeaveHostControl = (rooms: RoomSessionService): void => {
+  const header = document.querySelector<HTMLElement>('.playlists-header');
+  if (!header || header.querySelector('.leave-host-button')) return;
+
+  const spotifyButton = Array.from(header.querySelectorAll<HTMLElement>('ion-button'))
+    .find((button) => button.textContent?.includes('Desconectar Spotify'));
+  if (!spotifyButton) return;
+
+  const button = document.createElement('ion-button');
+  button.className = 'leave-host-button';
+  button.setAttribute('fill', 'clear');
+  button.textContent = 'Dejar de ser anfitrión';
+  spotifyButton.insertAdjacentElement('beforebegin', button);
+
+  button.addEventListener('click', async () => {
+    if (!window.confirm('¿Quieres dejar de ser anfitrión? La sala actual se cerrará.')) return;
+
+    button.setAttribute('disabled', 'true');
+    button.textContent = 'Cerrando sala…';
+    const roomCode = (localStorage.getItem('bingo_room_code') ?? '').replace(/\D/g, '').slice(0, 6);
+
+    try {
+      if (roomCode.length === 6) {
+        await rooms.closeHostRoom(roomCode);
+        await rooms.leaveRoom(roomCode).catch(() => undefined);
+      }
+    } finally {
+      clearHostSession();
+      window.location.reload();
+    }
+  });
+};
+
 const applyInvite = (): void => {
   if (inviteApplied || invitedRoomCode.length !== 6) return;
   const joinInput = document.getElementById('join-room-input') as (HTMLElement & { value?: string }) | null;
@@ -113,9 +161,11 @@ bootstrapApplication(AppComponent, {
     provideFirestore(() => getFirestore()),
     provideAppInitializer(() => inject(AnonymousAuthService).initialize()),
   ],
-}).then(() => {
+}).then((appRef) => {
+  const rooms = appRef.injector.get(RoomSessionService);
   const refresh = (): void => {
     bindInviteControls();
+    bindLeaveHostControl(rooms);
     applyInvite();
   };
   new MutationObserver(refresh).observe(document.body, { childList: true, subtree: true });
