@@ -27,6 +27,16 @@
       opacity: 0.6;
       cursor: wait;
     }
+
+    #print-card-count {
+      width: 100%;
+      box-sizing: border-box;
+      margin: 8px 0 12px;
+      padding: 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      font: inherit;
+    }
   </style>
 </head>
 <body>
@@ -123,6 +133,247 @@
       });
       window.setInterval(updateButtonVisibility, 500);
       updateButtonVisibility();
+    })();
+  </script>
+
+  <script>
+    (() => {
+      const tokenKey = 'spotify_access_token';
+      const cardSize = 15;
+      const maxCards = 200;
+      let generating = false;
+
+      const selectedPlaylistId = () => {
+        const select = document.getElementById('playlist-select');
+        return typeof select?.value === 'string' && select.value ? select.value : null;
+      };
+
+      const selectedPlaylistName = () => {
+        const summary = document.querySelector('.playlist-summary strong');
+        return summary?.textContent?.trim() || 'Bingo Musical';
+      };
+
+      const shuffle = values => {
+        const result = [...values];
+        for (let i = result.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [result[i], result[j]] = [result[j], result[i]];
+        }
+        return result;
+      };
+
+      const loadTracks = async (playlistId, accessToken) => {
+        const tracks = [];
+        let next = `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/items?limit=50&additional_types=track`;
+
+        while (next) {
+          const response = await fetch(next, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          if (!response.ok) {
+            throw new Error('No se pudieron cargar las canciones de la playlist.');
+          }
+          const page = await response.json();
+          for (const row of page.items || []) {
+            const track = row.item || row.track;
+            if (track?.id && track.type === 'track' && !track.is_local) {
+              tracks.push({
+                id: track.id,
+                name: track.name || 'Canción',
+                artist: track.artists?.[0]?.name || 'Artista desconocido',
+              });
+            }
+          }
+          next = page.next;
+        }
+
+        return [...new Map(tracks.map(track => [track.id, track])).values()];
+      };
+
+      const createCards = (tracks, count) => {
+        const cards = [];
+        const signatures = new Set();
+        let attempts = 0;
+
+        while (cards.length < count && attempts < count * 30) {
+          attempts += 1;
+          const card = shuffle(tracks).slice(0, cardSize);
+          const signature = card.map(track => track.id).sort().join('|');
+          if (!signatures.has(signature)) {
+            signatures.add(signature);
+            cards.push(card);
+          }
+        }
+
+        while (cards.length < count) {
+          cards.push(shuffle(tracks).slice(0, cardSize));
+        }
+        return cards;
+      };
+
+      const pdfText = value => String(value)
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\x20-\x7E]/g, '?')
+        .replace(/\\/g, '\\\\')
+        .replace(/\(/g, '\\(')
+        .replace(/\)/g, '\\)');
+
+      const truncate = (value, max) => value.length > max ? `${value.slice(0, max - 3)}...` : value;
+
+      const buildPdf = (cards, playlistName) => {
+        const pageWidth = 842;
+        const pageHeight = 595;
+        const margin = 20;
+        const gap = 12;
+        const cardWidth = (pageWidth - margin * 2 - gap) / 2;
+        const cardHeight = (pageHeight - margin * 2 - gap) / 2;
+        const objects = [];
+        const pageIds = [];
+        const addObject = body => {
+          objects.push(body);
+          return objects.length;
+        };
+
+        const fontId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+        const boldFontId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
+        const pagesId = addObject('');
+
+        for (let pageIndex = 0; pageIndex < Math.ceil(cards.length / 4); pageIndex += 1) {
+          const commands = [];
+          const pageCards = cards.slice(pageIndex * 4, pageIndex * 4 + 4);
+
+          pageCards.forEach((card, slot) => {
+            const column = slot % 2;
+            const row = Math.floor(slot / 2);
+            const x = margin + column * (cardWidth + gap);
+            const y = pageHeight - margin - cardHeight - row * (cardHeight + gap);
+            const inner = 10;
+            const headerHeight = 34;
+            const gridY = y + inner;
+            const gridHeight = cardHeight - headerHeight - inner * 2;
+            const cellWidth = (cardWidth - inner * 2) / 5;
+            const cellHeight = gridHeight / 3;
+
+            commands.push('0.7 w');
+            commands.push(`${x.toFixed(2)} ${y.toFixed(2)} ${cardWidth.toFixed(2)} ${cardHeight.toFixed(2)} re S`);
+            commands.push(`BT /F2 12 Tf ${x + inner} ${y + cardHeight - 18} Td (${pdfText('BINGO MUSICAL')}) Tj ET`);
+            commands.push(`BT /F1 7 Tf ${x + inner} ${y + cardHeight - 29} Td (${pdfText(truncate(playlistName, 55))}) Tj ET`);
+            commands.push(`BT /F1 7 Tf ${x + cardWidth - 68} ${y + cardHeight - 18} Td (${pdfText(`Carton ${pageIndex * 4 + slot + 1}`)}) Tj ET`);
+
+            card.forEach((track, index) => {
+              const cellColumn = index % 5;
+              const cellRow = Math.floor(index / 5);
+              const cellX = x + inner + cellColumn * cellWidth;
+              const cellY = gridY + (2 - cellRow) * cellHeight;
+              commands.push(`${cellX.toFixed(2)} ${cellY.toFixed(2)} ${cellWidth.toFixed(2)} ${cellHeight.toFixed(2)} re S`);
+              commands.push(`BT /F2 6.5 Tf ${cellX + 4} ${cellY + cellHeight - 14} Td (${pdfText(truncate(track.name, 18))}) Tj ET`);
+              commands.push(`BT /F1 5.5 Tf ${cellX + 4} ${cellY + cellHeight - 26} Td (${pdfText(truncate(track.artist, 20))}) Tj ET`);
+            });
+          });
+
+          const stream = commands.join('\n');
+          const contentId = addObject(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+          const pageId = addObject(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldFontId} 0 R >> >> /Contents ${contentId} 0 R >>`);
+          pageIds.push(pageId);
+        }
+
+        objects[pagesId - 1] = `<< /Type /Pages /Kids [${pageIds.map(id => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`;
+        const catalogId = addObject(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
+        let pdf = '%PDF-1.4\n';
+        const offsets = [0];
+
+        objects.forEach((object, index) => {
+          offsets[index + 1] = pdf.length;
+          pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+        });
+
+        const xref = pdf.length;
+        pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+        for (let i = 1; i <= objects.length; i += 1) {
+          pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+        }
+        pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xref}\n%%EOF`;
+        return new Blob([pdf], { type: 'application/pdf' });
+      };
+
+      const bindControls = () => {
+        const openButton = document.getElementById('print-cards-button');
+        const dialog = document.getElementById('print-cards-dialog');
+        const cancelButton = document.getElementById('cancel-print-cards');
+        const confirmButton = document.getElementById('confirm-print-cards');
+        const countInput = document.getElementById('print-card-count');
+        const error = document.getElementById('print-cards-error');
+
+        if (!openButton || !dialog || openButton.dataset.printBound === 'true') return;
+        openButton.dataset.printBound = 'true';
+
+        openButton.addEventListener('click', event => {
+          event.preventDefault();
+          error.hidden = true;
+          dialog.showModal();
+        });
+
+        cancelButton?.addEventListener('click', event => {
+          event.preventDefault();
+          dialog.close();
+        });
+
+        confirmButton?.addEventListener('click', async event => {
+          event.preventDefault();
+          if (generating) return;
+
+          const count = Number.parseInt(countInput?.value || '', 10);
+          const playlistId = selectedPlaylistId();
+          const accessToken = sessionStorage.getItem(tokenKey);
+
+          if (!Number.isInteger(count) || count < 1 || count > maxCards) {
+            error.textContent = `Indica una cantidad entre 1 y ${maxCards}.`;
+            error.hidden = false;
+            return;
+          }
+          if (!playlistId || !accessToken) {
+            error.textContent = 'Selecciona una playlist y conecta Spotify antes de generar los cartones.';
+            error.hidden = false;
+            return;
+          }
+
+          generating = true;
+          confirmButton.disabled = true;
+          const originalText = confirmButton.textContent;
+          confirmButton.textContent = 'Generando…';
+          error.hidden = true;
+
+          try {
+            const tracks = await loadTracks(playlistId, accessToken);
+            if (tracks.length < cardSize) {
+              throw new Error(`La playlist necesita al menos ${cardSize} canciones válidas.`);
+            }
+            const cards = createCards(tracks, count);
+            const blob = buildPdf(cards, selectedPlaylistName());
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `cartones-bingo-${count}.pdf`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+            dialog.close();
+          } catch (reason) {
+            error.textContent = reason instanceof Error ? reason.message : 'No se pudo generar el PDF.';
+            error.hidden = false;
+          } finally {
+            generating = false;
+            confirmButton.disabled = false;
+            confirmButton.textContent = originalText;
+          }
+        });
+      };
+
+      new MutationObserver(bindControls).observe(document.body, { childList: true, subtree: true });
+      window.setInterval(bindControls, 500);
+      bindControls();
     })();
   </script>
 </body>
